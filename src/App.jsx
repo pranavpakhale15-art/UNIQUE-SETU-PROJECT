@@ -6,6 +6,7 @@ import {
   Route,
   Routes,
   Navigate,
+  useLocation,
 } from "react-router-dom";
 
 import PageNotFound from "./lib/PageNotFound";
@@ -21,6 +22,7 @@ import ServiceDetail from "@/pages/ServiceDetail";
 import CustomerDashboard from "@/pages/CustomerDashboard";
 import NewApplication from "@/pages/NewApplication";
 import ApplicationDetail from "@/pages/ApplicationDetail";
+import TaskDetail from "@/pages/TaskDetail";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import ForgotPassword from "@/pages/ForgotPassword";
@@ -32,8 +34,8 @@ const AuthenticatedApp = () => {
     isLoadingAuth,
     isLoadingPublicSettings,
     authError,
-    navigateToLogin,
   } = useAuth();
+  const location = useLocation();
 
   if (isLoadingPublicSettings || isLoadingAuth) {
     return (
@@ -49,8 +51,8 @@ const AuthenticatedApp = () => {
     }
 
     if (authError.type === "auth_required") {
-      navigateToLogin();
-      return null;
+      const returnTo = `${location.pathname}${location.search}${location.hash}`;
+      return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
     }
   }
 
@@ -68,7 +70,6 @@ const AuthenticatedApp = () => {
         <Route
           element={
             <ProtectedRoute
-              unauthenticatedElement={<Navigate to="/login" replace />}
               roles={["customer"]}
             />
           }
@@ -80,18 +81,17 @@ const AuthenticatedApp = () => {
         <Route
           element={
             <ProtectedRoute
-              unauthenticatedElement={<Navigate to="/login" replace />}
               roles={["owner", "staff", "admin"]}
             />
           }
         >
           <Route path="/workspace" element={<RoleWorkspace />} />
+          <Route path="/tasks/:id" element={<TaskDetail />} />
         </Route>
 
         <Route
           element={
             <ProtectedRoute
-              unauthenticatedElement={<Navigate to="/login" replace />}
             />
           }
         >

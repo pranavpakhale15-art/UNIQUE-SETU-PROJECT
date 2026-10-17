@@ -89,6 +89,7 @@ export default function NewApplication() {
   };
 
   const createApp = async (asDraft) => {
+    if (submitting) return;
     setError("");
     if (!selected) {
       setError(t("newApp.selectService"));
@@ -117,7 +118,7 @@ export default function NewApplication() {
       }
 
       if (!asDraft) await submitApplication(application.id);
-      navigate(`/applications/${application.id}`);
+      navigate(`/applications/${application.id}`, { replace: true });
     } catch (e) {
       setError(e.message || "Error");
     } finally {

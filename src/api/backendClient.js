@@ -180,6 +180,7 @@ export function normalizeDocument(document) {
   return {
     ...document,
     id: document.id || document._id,
+    document_kind: document.document_kind || 'customer_submission',
     review_status: status === 'correction_requested' ? 'replacement_requested' : status,
     submission_mode: document.submission_method === 'in_shop' ? 'physical' : 'online',
     upload_date: document.created_at,
@@ -235,6 +236,18 @@ export async function getService(serviceSlug) {
 export async function listApplications() {
   const result = await apiFetch('/applications?page=1&page_size=100');
   return { ...result, items: (result.items || []).map(normalizeApplication) };
+}
+
+export async function listCompletedWork() {
+  return apiFetch('/applications/completed-work');
+}
+
+export async function listAwaitingCustomerSharing() {
+  return apiFetch('/applications/awaiting-customer-sharing');
+}
+
+export async function listNotifications() {
+  return apiFetch('/notifications?page=1&page_size=100');
 }
 
 export async function updateApplicationStatus(applicationId, status, reason) {
@@ -323,10 +336,30 @@ export async function listApplicationTasks() {
   return apiFetch('/tasks?page=1&page_size=100');
 }
 
+export async function getApplicationTask(taskId) {
+  return apiFetch(`/tasks/${encodeURIComponent(taskId)}`);
+}
+
 export async function completeApplicationTask(taskId, completionNotes) {
   return apiFetch(`/tasks/${encodeURIComponent(taskId)}/complete`, {
     method: 'POST',
     body: JSON.stringify({ completion_notes: completionNotes || null }),
+  });
+}
+
+export async function uploadIssuedApplicationDocument(applicationId, file) {
+  const form = new FormData();
+  form.append('file', file);
+  return apiFetch(`/applications/${encodeURIComponent(applicationId)}/issued-document`, {
+    method: 'POST',
+    body: form,
+  });
+}
+
+export async function shareIssuedApplicationDocument(applicationId) {
+  return apiFetch(`/applications/${encodeURIComponent(applicationId)}/issued-document/share`, {
+    method: 'POST',
+    body: JSON.stringify({}),
   });
 }
 
@@ -398,27 +431,42 @@ export async function uploadApplicationDocument(applicationId, checklistItemId, 
 }
 
 export async function downloadApplicationDocument(documentId, filename) {
-  const info = await apiFetch(`/documents/${encodeURIComponent(documentId)}/download-url`);
-  if (info.url) {
-    window.open(info.url, '_blank', 'noopener,noreferrer');
-    return;
-  }
+  const downloadWindow = window.open('about:blank', '_blank');
+  if (downloadWindow) downloadWindow.opener = null;
+  let redirectedDownloadWindow = false;
 
-  const endpoint = info.download_endpoint || '';
-  const prefix = '/api/v1';
-  const path = endpoint.startsWith(prefix) ? endpoint.slice(prefix.length) : endpoint;
-  let response = await fetchResponse(path, {});
-  if (response.status === 401 && await refreshSession()) {
-    response = await fetchResponse(path, {});
-  }
-  if (!response.ok) await parseResponse(response);
+  try {
+    const info = await apiFetch(`/documents/${encodeURIComponent(documentId)}/download-url`);
+    if (info.url) {
+      if (downloadWindow) {
+        downloadWindow.location.replace(info.url);
+        redirectedDownloadWindow = true;
+      } else {
+        window.location.assign(info.url);
+      }
+      return;
+    }
 
-  const objectUrl = URL.createObjectURL(await response.blob());
-  const link = document.createElement('a');
-  link.href = objectUrl;
-  link.download = filename || 'document';
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    const endpoint = info.download_endpoint || '';
+    const prefix = '/api/v1';
+    const path = endpoint.startsWith(prefix) ? endpoint.slice(prefix.length) : endpoint;
+    let response = await fetchResponse(path, {});
+    if (response.status === 401 && await refreshSession()) {
+      response = await fetchResponse(path, {});
+    }
+    if (!response.ok) await parseResponse(response);
+
+    const objectUrl = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename || 'document';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  } finally {
+    if (downloadWindow && !redirectedDownloadWindow) {
+      downloadWindow.close();
+    }
+  }
 }

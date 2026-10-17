@@ -89,8 +89,10 @@ export default function ServiceDetail() {
 
       {(!isAuthenticated || user?.role === "customer") && <div className="mt-8">
         <Button asChild size="lg">
-          <Link to={isAuthenticated ? `/applications/new?service=${service.service_slug}` : "/register"}>
-            {t("common.applyNow")}
+          <Link to={isAuthenticated
+            ? `/applications/new?service=${service.service_slug}`
+            : `/login?returnTo=${encodeURIComponent(`/services/${encodeURIComponent(slug)}`)}`}>
+            {isAuthenticated ? t("common.applyNow") : t("common.loginToApply")}
           </Link>
         </Button>
       </div>}

@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { APIError, getCurrentUser, logoutUser } from '@/api/backendClient';
 
 const AuthContext = createContext();
@@ -31,7 +31,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const checkUserAuth = async () => {
+  const checkUserAuth = useCallback(async () => {
     try {
       setIsLoadingAuth(true);
       const currentUser = await getCurrentUser();
@@ -65,9 +65,9 @@ export const AuthProvider = ({ children }) => {
       }
       return null;
     }
-  };
+  }, []);
 
-  const logout = async (shouldRedirect = true) => {
+  const logout = useCallback(async (shouldRedirect = true) => {
     await logoutUser();
     setUser(null);
     setIsAuthenticated(false);
@@ -77,11 +77,30 @@ export const AuthProvider = ({ children }) => {
     if (shouldRedirect) {
       window.location.href = '/login';
     }
-  };
+  }, []);
 
-  const navigateToLogin = () => {
-    window.location.href = '/login';
-  };
+  const setAuthenticatedUser = useCallback((authenticatedUser) => {
+    setUser(authenticatedUser);
+    setIsAuthenticated(Boolean(authenticatedUser));
+    setAuthError(null);
+    setIsLoadingAuth(false);
+    setAuthChecked(true);
+  }, []);
+
+  useEffect(() => {
+    const handlePageShow = (event) => {
+      if (event.persisted) checkUserAuth();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') checkUserAuth();
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('pageshow', handlePageShow);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [checkUserAuth]);
 
   return (
     <AuthContext.Provider value={{ 
@@ -93,7 +112,7 @@ export const AuthProvider = ({ children }) => {
       appPublicSettings,
       authChecked,
       logout,
-      navigateToLogin,
+      setAuthenticatedUser,
       checkUserAuth,
       checkAppState
     }}>

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegistered';
 
@@ -11,6 +11,7 @@ const DefaultFallback = () => (
 
 export default function ProtectedRoute({ fallback = <DefaultFallback />, unauthenticatedElement, roles }) {
   const { user, isAuthenticated, isLoadingAuth, authChecked, authError, checkUserAuth } = useAuth();
+  const location = useLocation();
 
   useEffect(() => {
     if (!authChecked && !isLoadingAuth) {
@@ -40,16 +41,21 @@ export default function ProtectedRoute({ fallback = <DefaultFallback />, unauthe
         </div>
       );
     }
-    return unauthenticatedElement;
+    return authError.type === 'auth_required' ? loginRedirect(location) : unauthenticatedElement;
   }
 
   if (!isAuthenticated) {
-    return unauthenticatedElement;
+    return loginRedirect(location);
   }
 
   if (roles && !roles.includes(user?.role)) {
-    return <div role="alert" className="max-w-lg mx-auto px-4 py-16 text-center text-destructive">You do not have access to this page.</div>;
+    return <Navigate to={user?.role === 'customer' ? '/dashboard' : '/workspace'} replace />;
   }
 
   return <Outlet />;
+}
+
+function loginRedirect(location) {
+  const returnTo = `${location.pathname}${location.search}${location.hash}`;
+  return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
 }

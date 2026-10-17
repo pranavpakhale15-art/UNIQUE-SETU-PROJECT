@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,8 +7,11 @@ import { UserPlus, UserRound, Lock, Loader2, Phone } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 import { safeReturnTo } from "@/lib/authReturnTo";
 import { registerWithMobilePassword, normalizeMobileNumber } from "@/api/backendClient";
+import { useAuth } from "@/lib/AuthContext";
 
 export default function Register() {
+  const { setAuthenticatedUser } = useAuth();
+  const navigate = useNavigate();
   const [accountType, setAccountType] = useState("customer");
   const [fullName, setFullName] = useState("");
   const [mobile, setMobile] = useState("");
@@ -21,6 +24,7 @@ export default function Register() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    if (loading) return;
 
     if (accountType !== "customer") {
       setError("Owner, admin, and staff accounts must be provisioned by an administrator.");
@@ -57,13 +61,15 @@ export default function Register() {
 
     setLoading(true);
     try {
-      await registerWithMobilePassword({
+      const result = await registerWithMobilePassword({
         full_name: fullName.trim(),
         mobile_number: cleanedMobile,
         password,
         preferred_language: 'mr',
       });
-      window.location.href = returnTo !== "/" ? returnTo : "/dashboard";
+      if (!result?.user) throw new Error("Registration did not return an account profile");
+      setAuthenticatedUser(result.user);
+      navigate(returnTo !== "/" ? returnTo : "/dashboard", { replace: true });
     } catch (err) {
       setError(err.message || "Registration failed");
     } finally {

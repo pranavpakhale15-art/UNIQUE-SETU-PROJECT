@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,17 +7,41 @@ import { LogIn, Lock, Loader2, Phone } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 import { safeReturnTo } from "@/lib/authReturnTo";
 import { loginWithMobilePassword, normalizeMobileNumber } from "@/api/backendClient";
+import { useAuth } from "@/lib/AuthContext";
 
 export default function Login() {
+  const { isAuthenticated, user, setAuthenticatedUser } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [accountType, setAccountType] = useState("customer");
   const [mobile, setMobile] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const returnTo = safeReturnTo();
+  const rolePath = user?.role === "customer" ? "/dashboard" : "/workspace";
+
+  useEffect(() => {
+    setAccountType("customer");
+    setMobile("");
+    setPassword("");
+    setError("");
+    setLoading(false);
+  }, [location.key, location.search]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate(returnTo !== "/" ? returnTo : rolePath, { replace: true });
+    }
+  }, [isAuthenticated, navigate, returnTo, rolePath]);
+
+  if (isAuthenticated) {
+    return <div role="status" className="min-h-screen flex items-center justify-center text-muted-foreground">Returning to your account…</div>;
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
     setError("");
 
     const cleanedMobile = normalizeMobileNumber(mobile);
@@ -29,8 +53,12 @@ export default function Login() {
     setLoading(true);
     try {
       const result = await loginWithMobilePassword(cleanedMobile, password, accountType);
-      const rolePath = result.user?.role === "customer" ? "/dashboard" : "/workspace";
-      window.location.href = returnTo !== "/" ? returnTo : rolePath;
+      if (!result?.user) throw new Error("Login did not return an account profile");
+      setAuthenticatedUser(result.user);
+      const destination = returnTo !== "/"
+        ? returnTo
+        : result.user.role === "customer" ? "/dashboard" : "/workspace";
+      navigate(destination, { replace: true });
     } catch (err) {
       setError(err.message || "Invalid mobile number or password");
     } finally {

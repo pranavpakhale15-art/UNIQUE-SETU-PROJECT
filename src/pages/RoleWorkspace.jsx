@@ -12,9 +12,13 @@ import {
   deleteService,
   listApplications,
   listApplicationTasks,
+  listAwaitingCustomerSharing,
+  listCompletedWork,
   listOwnerUsers,
   listServices,
   publishService,
+  shareIssuedApplicationDocument,
+  uploadIssuedApplicationDocument,
   updateAdminUserRole,
   updateAdminUserStatus,
   updateService,
@@ -31,6 +35,8 @@ export default function RoleWorkspace() {
   const [applications, setApplications] = useState([]);
   const [staff, setStaff] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [completedWork, setCompletedWork] = useState([]);
+  const [awaitingSharing, setAwaitingSharing] = useState([]);
   const [users, setUsers] = useState([]);
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -46,22 +52,34 @@ export default function RoleWorkspace() {
     setError("");
     try {
       if (user.role === "owner") {
-        const [applicationPage, staffPage, taskPage] = await Promise.all([
+        const [applicationPage, staffPage, taskPage, completedWorkPage, awaitingPage] = await Promise.all([
           listApplications(), listOwnerUsers("staff"), listApplicationTasks(),
+          listCompletedWork(), listAwaitingCustomerSharing(),
         ]);
         setApplications(applicationPage.items || []);
         setStaff(staffPage.items || []);
         setTasks(taskPage.items || []);
+        setCompletedWork(completedWorkPage.items || []);
+        setAwaitingSharing(awaitingPage.items || []);
       } else if (user.role === "staff") {
-        const applicationPage = await listApplications();
+        const [applicationPage, taskPage, completedWorkPage, awaitingPage] = await Promise.all([
+          listApplications(), listApplicationTasks(), listCompletedWork(), listAwaitingCustomerSharing(),
+        ]);
         setApplications(applicationPage.items || []);
+        setTasks(taskPage.items || []);
+        setCompletedWork(completedWorkPage.items || []);
+        setAwaitingSharing(awaitingPage.items || []);
       } else if (user.role === "admin") {
-        const [applicationPage, userPage, servicePage] = await Promise.all([
-          listApplications(), listOwnerUsers(), listServices(lang, true),
+        const [applicationPage, userPage, servicePage, taskPage, completedWorkPage, awaitingPage] = await Promise.all([
+          listApplications(), listOwnerUsers(), listServices(lang, true), listApplicationTasks(),
+          listCompletedWork(), listAwaitingCustomerSharing(),
         ]);
         setApplications(applicationPage.items || []);
         setUsers(userPage.items || []);
         setServices(servicePage.items || []);
+        setTasks(taskPage.items || []);
+        setCompletedWork(completedWorkPage.items || []);
+        setAwaitingSharing(awaitingPage.items || []);
       }
     } catch (loadError) {
       setError(loadError.message || "Unable to load workspace");
@@ -112,6 +130,21 @@ export default function RoleWorkspace() {
     ).then((success) => { if (success) setTaskForm({ applicationId: "", staffId: "", title: "", dueDate: "", priority: "normal" }); });
   };
 
+  const uploadIssuedDocument = (record, event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !record.id) return;
+    runAction(
+      () => uploadIssuedApplicationDocument(record.id, file),
+      "Final document uploaded. It is not available to the customer until shared.",
+    );
+  };
+
+  const shareIssuedDocument = (record) => runAction(
+    () => shareIssuedApplicationDocument(record.id),
+    "Final document shared with the customer.",
+  );
+
   const createNewService = async (event) => {
     event.preventDefault();
     const documentRequirements = serviceForm.documents.split(/\r?\n/).map((label, index) => label.trim())
@@ -143,6 +176,48 @@ export default function RoleWorkspace() {
   };
 
   const title = user.role === "owner" ? "Owner workspace" : user.role === "staff" ? "Staff workspace" : "Admin workspace";
+  const remainingTasks = tasks.filter((task) => task.status !== "completed" && task.status !== "cancelled");
+  const completedTasks = tasks.filter((task) => task.status === "completed");
+
+  const renderTask = (task, completed = false) => (
+    <div key={task._id} className="rounded-lg border border-border bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <Link to={`/tasks/${task._id}`} className="font-medium hover:text-primary hover:underline">{task.title}</Link>
+          <p className="text-xs text-muted-foreground">
+            {task.priority} · {task.due_date ? `Due ${new Date(task.due_date).toLocaleString()}` : "No due date"} · {task.status}
+            {completed && task.completed_at ? ` · Completed ${new Date(task.completed_at).toLocaleDateString()}` : ""}
+          </p>
+        </div>
+        {!completed && user.role !== "staff" && (
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => runAction(() => completeApplicationTask(task._id), "Task marked complete.")}>Mark complete</Button>
+        )}
+      </div>
+      {task.application && (
+        <div className="mt-3 border-t border-border pt-3">
+          <Link to={`/applications/${task.application.id}`} className="font-medium text-sm text-primary hover:underline">
+            {loc(task.application, "service_name") || task.application.application_number} · {task.application.application_number}
+          </Link>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Customer: {task.customer?.full_name || "—"}
+            {task.customer?.mobile_number ? ` · ${task.customer.mobile_number}` : ""}
+            {task.customer?.email ? ` · ${task.customer.email}` : ""}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Submitted {task.application.submitted_at ? new Date(task.application.submitted_at).toLocaleString() : "—"}
+            {" · "}{task.application.status}
+          </p>
+          {(task.documents || []).length > 0 && (
+            <ul aria-label="Submitted application documents" className="mt-2 space-y-1 text-xs text-muted-foreground">
+              {task.documents.map((document) => (
+                <li key={document.id}>{document.file_name || "Physical document"} · {document.verification_status || document.submission_method}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-10">
@@ -158,7 +233,7 @@ export default function RoleWorkspace() {
         <>
           {(user.role === "owner" || user.role === "staff" || user.role === "admin") && (
             <section className="mb-10">
-              <h2 className="font-heading font-semibold text-xl mb-4 flex items-center gap-2"><FileText className="w-5 h-5" />{user.role === "staff" ? "Assigned applications (read-only)" : user.role === "admin" ? "All customer applications" : "Customer applications"}</h2>
+              <h2 className="font-heading font-semibold text-xl mb-4 flex items-center gap-2"><FileText className="w-5 h-5" />{user.role === "staff" ? "In-progress assigned applications (read-only)" : "In-progress applications"}</h2>
               {applications.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-border p-10 text-center text-muted-foreground">No applications are assigned or submitted yet.</div>
               ) : (
@@ -168,6 +243,11 @@ export default function RoleWorkspace() {
                       <Link to={`/applications/${application.id}`} className="min-w-0 flex-1 hover:text-primary">
                         <p className="font-medium truncate">{loc(application, "service_name") || application.service?.name?.mr || application.application_number}</p>
                         <p className="text-xs text-muted-foreground">{application.application_number} · {application.priority || "normal"} priority{application.internal_due_date ? ` · due ${new Date(application.internal_due_date).toLocaleDateString()}` : ""}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {application.customer?.full_name || "Customer"}
+                          {application.customer?.mobile_number ? ` · ${application.customer.mobile_number}` : ""}
+                          {application.submitted_at ? ` · Submitted ${new Date(application.submitted_at).toLocaleDateString()}` : " · Not submitted"}
+                        </p>
                       </Link>
                       <StatusBadge status={application.status} />
                       {user.role === "owner" && (
@@ -192,13 +272,61 @@ export default function RoleWorkspace() {
           )}
 
           {user.role === "staff" && (
-            <div className="rounded-xl border border-border bg-muted/20 p-5 text-sm text-muted-foreground">
-              Staff access is limited to reading assigned applications, copying application details, and downloading customer-provided files. Status, review, and document changes are restricted to owners and administrators.
-            </div>
+            <>
+              <div className="mb-8 rounded-xl border border-border bg-muted/20 p-5 text-sm text-muted-foreground">
+                Staff access is limited to reading assigned applications, copying application details, and downloading customer-provided files. Status, review, and document changes are restricted to owners and administrators.
+              </div>
+              <section className="mb-10">
+                <h2 className="font-heading font-semibold text-xl mb-4">Awaiting Customer Sharing</h2>
+                {awaitingSharing.length === 0 ? <p className="text-sm text-muted-foreground">No assigned applications are awaiting customer sharing.</p> : (
+                  <div className="space-y-2">
+                    {awaitingSharing.map((record) => (
+                      <Link key={record.id} to={`/applications/${record.id}`} className="block rounded-lg border border-border bg-card p-4 hover:border-primary/40">
+                        <p className="font-medium">{record.application_number} · {loc(record, "service_name") || "Completed service"}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {record.customer?.full_name || "Customer"}
+                          {record.customer?.mobile_number ? ` · ${record.customer.mobile_number}` : ""}
+                          {" · "}Completed {new Date(record.completed_at).toLocaleString()}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Final document: {record.issued_document?.file_name || record.final_document_status}
+                        </p>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </section>
+              <section className="mb-10">
+                <h2 className="font-heading font-semibold text-xl mb-4">Completed Tasks</h2>
+                {completedWork.length === 0 ? <p className="text-sm text-muted-foreground">No assigned applications with shared final documents are in the 45-day window.</p> : (
+                  <div className="space-y-2">
+                    {completedWork.map((record) => (
+                      <Link key={record.id} to={`/applications/${record.id}`} className="block rounded-lg border border-border bg-card p-4 hover:border-primary/40">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="font-medium">{record.application_number} · {loc(record, "service_name") || "Completed service"}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {record.customer?.full_name || "Customer"}
+                              {record.customer?.mobile_number ? ` · ${record.customer.mobile_number}` : ""}
+                              {" · "}Completed {new Date(record.completed_at).toLocaleString()}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {record.final_document_status}{record.issued_document?.file_name ? ` · ${record.issued_document.file_name}` : ""}
+                            </p>
+                          </div>
+                          <StatusBadge status={record.status} />
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </>
           )}
 
-          {user.role === "owner" && (
+          {(user.role === "owner" || user.role === "admin") && (
             <>
+              {user.role === "owner" && (
               <section className="mb-10 rounded-xl border border-border bg-card p-5">
                 <h2 className="font-heading font-semibold text-xl mb-1 flex items-center gap-2"><ClipboardList className="w-5 h-5" />Priority and due-date checklist</h2>
                 <p className="text-sm text-muted-foreground mb-4">Assign follow-up tasks to staff and set a due date and priority.</p>
@@ -222,18 +350,98 @@ export default function RoleWorkspace() {
                 </form>
                 {!staff.length && <p className="mt-3 text-sm text-muted-foreground">Create a staff account below before assigning tasks.</p>}
               </section>
+              )}
 
               <section className="mb-10">
-                <h2 className="font-heading font-semibold text-xl mb-4">Open checklist tasks</h2>
-                {tasks.length === 0 ? <p className="text-sm text-muted-foreground">No tasks created yet.</p> : (
-                  <div className="space-y-2">
-                    {tasks.map((task) => (
-                      <div key={task._id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3">
-                        <div><p className="font-medium">{task.title}</p><p className="text-xs text-muted-foreground">{task.priority} · {task.due_date ? `Due ${new Date(task.due_date).toLocaleString()}` : "No due date"} · {task.status}</p></div>
-                        {task.status !== "completed" && task.status !== "cancelled" && <Button size="sm" variant="outline" disabled={busy} onClick={() => runAction(() => completeApplicationTask(task._id), "Task marked complete.")}>Mark complete</Button>}
+                <h2 className="font-heading font-semibold text-xl mb-4">Remaining Tasks</h2>
+                {remainingTasks.length === 0 ? <p className="text-sm text-muted-foreground">No remaining tasks.</p> : (
+                  <div className="space-y-2">{remainingTasks.map((task) => renderTask(task))}</div>
+                )}
+              </section>
+
+              <section className="mb-10 rounded-xl border border-border bg-card p-5">
+                <h2 className="font-heading font-semibold text-xl mb-1 flex items-center gap-2"><FileText className="w-5 h-5" />Awaiting Customer Sharing</h2>
+                <p className="text-sm text-muted-foreground mb-4">Centre-completed applications stay here until the matching customer is sent the final document.</p>
+                {awaitingSharing.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No applications are awaiting a final document or customer sharing.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {awaitingSharing.map((record) => (
+                      <article key={record.id} className="rounded-lg border border-border p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <Link to={`/applications/${record.id}`} className="font-medium text-primary hover:underline">
+                              {record.application_number} · {loc(record, "service_name") || "Completed service"}
+                            </Link>
+                            <p className="mt-1 text-sm">Customer: {record.customer?.full_name || "—"}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {record.customer?.mobile_number || "No phone"}
+                              {record.customer?.email ? ` · ${record.customer.email}` : ""}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {record.status} · Centre completed {new Date(record.completed_at).toLocaleString()}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Final document: {record.issued_document?.file_name || record.final_document_status}
+                              {record.issued_document?.updated_at ? ` · Uploaded ${new Date(record.issued_document.updated_at).toLocaleString()}` : ""}
+                            </p>
+                          </div>
+                          {user.role !== "staff" && (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <label className="inline-flex cursor-pointer items-center rounded-md border border-input px-3 py-2 text-sm font-medium hover:bg-accent focus-within:ring-2 focus-within:ring-ring">
+                                {record.issued_document ? "Replace final document" : "Upload final document"}
+                                <input
+                                  type="file"
+                                  accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                                  aria-label={`${record.issued_document ? "Replace" : "Upload"} final document for ${record.application_number}`}
+                                  className="sr-only"
+                                  disabled={busy}
+                                  onChange={(event) => uploadIssuedDocument(record, event)}
+                                />
+                              </label>
+                              {record.issued_document && (
+                                <Button size="sm" disabled={busy} onClick={() => shareIssuedDocument(record)}>Share with customer</Button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="mb-10">
+                <h2 className="font-heading font-semibold text-xl mb-4">Completed Tasks</h2>
+                {completedWork.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-border p-5 text-sm text-muted-foreground">No customer applications have had their final documents shared in the 45-day retention window.</p>
+                ) : (
+                  <div className="mb-5 space-y-2">
+                    {completedWork.map((record) => (
+                      <div key={record.id} className="rounded-lg border border-border bg-card p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <Link to={`/applications/${record.id}`} className="min-w-0 flex-1 hover:text-primary">
+                            <p className="font-medium">{record.application_number} · {loc(record, "service_name") || "Completed service"}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {record.customer?.full_name || "Customer"}
+                              {record.customer?.mobile_number ? ` · ${record.customer.mobile_number}` : ""}
+                              {record.customer?.email ? ` · ${record.customer.email}` : ""}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {record.final_document_status} · Completed {new Date(record.completed_at).toLocaleString()}
+                              {record.issued_document?.shared_at ? ` · Shared ${new Date(record.issued_document.shared_at).toLocaleString()}` : ""}
+                            </p>
+                            {record.issued_document?.file_name && <p className="mt-1 text-xs text-muted-foreground">Final document: {record.issued_document.file_name}</p>}
+                          </Link>
+                          <StatusBadge status={record.status} />
+                        </div>
                       </div>
                     ))}
                   </div>
+                )}
+                <h3 className="mb-2 font-medium">Completed checklist tasks</h3>
+                {completedTasks.length === 0 ? <p className="text-sm text-muted-foreground">No completed tasks in the 45-day review window.</p> : (
+                  <div className="space-y-2">{completedTasks.map((task) => renderTask(task, true))}</div>
                 )}
               </section>
 

@@ -12,7 +12,7 @@ export const translations = {
       search: "सेवा शोधा",
       save: "जतन करा", cancel: "रद्द करा", submit: "सबमिट करा", back: "मागे",
       required: "आवश्यक", optional: "पर्यायी", yes: "होय", no: "नाही",
-      viewDetails: "तपशील पहा", applyNow: "आता अर्ज करा",
+      viewDetails: "तपशील पहा", applyNow: "आता अर्ज करा", loginToApply: "अर्ज करण्यासाठी लॉगिन करा",
     },
     home: {
       heroTitle: "सरकरी सेवांसाठी तुमचा विश्वासार्ह साथीदार",
@@ -89,7 +89,7 @@ export const translations = {
       search: "Search services",
       save: "Save", cancel: "Cancel", submit: "Submit", back: "Back",
       required: "Required", optional: "Optional", yes: "Yes", no: "No",
-      viewDetails: "View details", applyNow: "Apply now",
+      viewDetails: "View details", applyNow: "Apply now", loginToApply: "Login to Apply",
     },
     home: {
       heroTitle: "Your trusted partner for government services",
@@ -166,7 +166,7 @@ export const translations = {
       search: "सेवा खोजें",
       save: "सहेजें", cancel: "रद्द करें", submit: "जमा करें", back: "वापस",
       required: "आवश्यक", optional: "वैकल्पिक", yes: "हां", no: "नहीं",
-      viewDetails: "विवरण देखें", applyNow: "अभी आवेदन करें",
+      viewDetails: "विवरण देखें", applyNow: "अभी आवेदन करें", loginToApply: "आवेदन के लिए लॉगिन करें",
     },
     home: {
       heroTitle: "सरकरी सेवाओं के लिए आपका भरोसेमंद साथी",

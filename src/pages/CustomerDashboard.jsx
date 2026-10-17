@@ -4,25 +4,37 @@ import { useLang } from "@/lib/i18n/LanguageContext";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Plus, FileText, ChevronRight } from "lucide-react";
-import { listApplications, listServices } from "@/api/backendClient";
+import { listApplications, listCompletedWork, listNotifications, listServices } from "@/api/backendClient";
 import ServiceCard from "@/components/ServiceCard";
 
 export default function CustomerDashboard() {
   const { t, loc, lang } = useLang();
   const [apps, setApps] = useState([]);
+  const [completedApps, setCompletedApps] = useState([]);
   const [services, setServices] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notificationError, setNotificationError] = useState("");
 
   useEffect(() => {
     (async () => {
       try {
-        const [applicationsPage, servicesPage] = await Promise.all([
+        const [applicationsPage, completedPage, servicesPage] = await Promise.all([
           listApplications(),
+          listCompletedWork(),
           listServices(lang),
         ]);
         setApps(applicationsPage.items || []);
+        setCompletedApps(completedPage.items || []);
         setServices(servicesPage.items || []);
+        try {
+          const notificationPage = await listNotifications();
+          setNotifications(notificationPage.items || []);
+          setNotificationError("");
+        } catch (notificationLoadError) {
+          setNotificationError(notificationLoadError.message || "Unable to load document notifications");
+        }
       } catch (e) {
         setError(e.message || "Unable to load your customer dashboard");
       } finally {
@@ -49,6 +61,22 @@ export default function CustomerDashboard() {
         <div role="alert" className="text-center py-16 text-destructive">{error}</div>
       ) : (
         <>
+          {notificationError && <p role="alert" className="mb-4 text-sm text-destructive">{notificationError}</p>}
+          {notifications.filter((notification) => notification.event_type === "document.issued_available" && notification.related_application_id).length > 0 && (
+            <section aria-labelledby="issued-documents-heading" className="mb-8 rounded-xl border border-green-200 bg-green-50 p-4">
+              <h2 id="issued-documents-heading" className="font-heading font-semibold text-foreground mb-2">Documents available</h2>
+              <ul className="space-y-2">
+                {notifications.filter((notification) => notification.event_type === "document.issued_available" && notification.related_application_id).map((notification) => (
+                  <li key={notification.id || notification._id} className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                    <p>{notification.message || notification.title}</p>
+                    <Button asChild size="sm" variant="outline">
+                      <Link to={`/applications/${notification.related_application_id}`}>View document</Link>
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <section aria-labelledby="applications-heading" className="mb-12">
             <h2 id="applications-heading" className="font-heading font-semibold text-xl mb-4">{t("dashboard.title")}</h2>
             {apps.length === 0 ? (
@@ -78,6 +106,39 @@ export default function CustomerDashboard() {
                         <StatusBadge status={a.status} />
                         <ChevronRight className="w-4 h-4 text-muted-foreground" />
                       </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+          <section aria-labelledby="completed-applications-heading" className="mb-12">
+            <h2 id="completed-applications-heading" className="font-heading font-semibold text-xl mb-4">Completed Tasks</h2>
+            {completedApps.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border p-6 text-sm text-muted-foreground">
+                No applications have a final document shared with you yet.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {completedApps.map((application) => (
+                  <Link
+                    key={application.id}
+                    to={`/applications/${application.id}`}
+                    className="block rounded-xl border border-border bg-card p-4 transition-all hover:border-primary/40 hover:shadow-sm"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium text-foreground">{loc(application, "service_name") || application.application_number}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {application.application_number} · Final document shared {application.issued_document?.shared_at
+                            ? new Date(application.issued_document.shared_at).toLocaleDateString()
+                            : ""}
+                        </p>
+                        {application.issued_document?.file_name && (
+                          <p className="mt-1 text-xs text-muted-foreground">Document: {application.issued_document.file_name}</p>
+                        )}
+                      </div>
+                      <StatusBadge status={application.status} />
                     </div>
                   </Link>
                 ))}

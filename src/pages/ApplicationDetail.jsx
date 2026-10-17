@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import { useLang } from "@/lib/i18n/LanguageContext";
@@ -9,9 +9,11 @@ import {
   downloadApplicationDocument,
   getApplication,
   reviewApplicationDocument,
+  shareIssuedApplicationDocument,
   submitApplication,
   updateApplicationOwnerFields,
   updateApplicationStatus,
+  uploadIssuedApplicationDocument,
   uploadApplicationDocument,
 } from "@/api/backendClient";
 
@@ -48,16 +50,21 @@ export default function ApplicationDetail() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [priority, setPriority] = useState("normal");
   const [dueDate, setDueDate] = useState("");
   const [ownerStatus, setOwnerStatus] = useState("");
   const canManage = user?.role === "owner" || user?.role === "admin";
+  const dashboardPath = user?.role === "customer" ? "/dashboard" : "/workspace";
+  const loadGeneration = useRef(0);
 
   const loadApplication = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     setLoading(true);
     setError("");
     try {
       const result = await getApplication(id);
+      if (generation !== loadGeneration.current) return;
       setApp(result.application);
       setPriority(result.application.priority || "normal");
       setDueDate(result.application.internal_due_date ? new Date(result.application.internal_due_date).toISOString().slice(0, 10) : "");
@@ -65,14 +72,18 @@ export default function ApplicationDetail() {
       setDocs(result.documents);
       setComments(result.comments);
     } catch (e) {
+      if (generation !== loadGeneration.current) return;
       setError(e.message || "Unable to load this application");
       setApp(null);
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
   }, [id]);
 
-  useEffect(() => { loadApplication(); }, [loadApplication]);
+  useEffect(() => {
+    loadApplication();
+    return () => { loadGeneration.current += 1; };
+  }, [loadApplication]);
 
   const handleUpload = async (item, file, replaceDocumentId) => {
     if (!file) return;
@@ -116,6 +127,39 @@ export default function ApplicationDetail() {
       await downloadApplicationDocument(document.id, document.file_name);
     } catch (e) {
       setError(e.message || "Unable to download the document");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleShareIssuedDocument = async (document) => {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await shareIssuedApplicationDocument(id);
+      setNotice(`${document.file_name || "Final document"} was shared with the customer.`);
+      await loadApplication();
+    } catch (e) {
+      setError(e.message || "Unable to share the final document");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleIssuedDocumentUpload = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await uploadIssuedApplicationDocument(id, file);
+      setNotice("Final document uploaded. Share it with the customer when ready.");
+      await loadApplication();
+    } catch (e) {
+      setError(e.message || "Unable to upload the final document");
     } finally {
       setBusy(false);
     }
@@ -194,7 +238,7 @@ export default function ApplicationDetail() {
     return (
       <div className="max-w-3xl mx-auto px-4 py-20 text-center">
         <p role={error ? "alert" : undefined} className={error ? "text-destructive" : "text-muted-foreground"}>{error || "404"}</p>
-        <Button asChild variant="link"><Link to="/dashboard">{t("appDetail.backToDashboard")}</Link></Button>
+        <Button asChild variant="link"><Link to={dashboardPath}>{t("appDetail.backToDashboard")}</Link></Button>
       </div>
     );
   }
@@ -215,11 +259,12 @@ export default function ApplicationDetail() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-10">
-      <Link to="/dashboard" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-6">
+      <Link to={dashboardPath} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-6">
         <ArrowLeft className="w-4 h-4" />{t("appDetail.backToDashboard")}
       </Link>
 
       {error && <div role="alert" className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{error}</div>}
+      {notice && <p role="status" className="mb-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
 
       <div className="flex items-start justify-between gap-3 mb-6">
         <div className="flex items-center gap-3">
@@ -233,6 +278,18 @@ export default function ApplicationDetail() {
         </div>
         <StatusBadge status={app.status} />
       </div>
+
+      {user?.role !== "customer" && app.customer && (
+        <section className="mb-6 rounded-xl border border-border bg-card p-5">
+          <h2 className="font-heading font-semibold text-foreground mb-3">Customer and submission details</h2>
+          <dl className="grid gap-3 sm:grid-cols-2">
+            <div><dt className="text-xs text-muted-foreground">Customer name</dt><dd className="mt-1 text-sm">{app.customer.full_name || "—"}</dd></div>
+            <div><dt className="text-xs text-muted-foreground">Mobile number</dt><dd className="mt-1 text-sm">{app.customer.mobile_number || "—"}</dd></div>
+            {app.customer.email && <div><dt className="text-xs text-muted-foreground">Email</dt><dd className="mt-1 break-words text-sm">{app.customer.email}</dd></div>}
+            <div><dt className="text-xs text-muted-foreground">Submitted</dt><dd className="mt-1 text-sm">{app.submitted_at ? new Date(app.submitted_at).toLocaleString() : "Not submitted"}</dd></div>
+          </dl>
+        </section>
+      )}
 
       {user?.role === "staff" && (
         <div className="mb-6 flex justify-end">
@@ -265,6 +322,54 @@ export default function ApplicationDetail() {
               <Button type="button" disabled={busy || !ownerStatus} onClick={handleOwnerStatusChange}>Update status</Button>
             </div>
           )}
+        </section>
+      )}
+
+      {canManage && app.status === "Completed by Shop" && !(docs || []).some((document) => document.document_kind === "issued") && (
+        <section className="mb-6 rounded-xl border border-border bg-card p-5">
+          <h2 className="font-heading font-semibold text-foreground">Issue final document</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Upload the final file for this application. It remains private until shared with this customer.</p>
+          <label className="mt-3 inline-flex cursor-pointer items-center rounded-md border border-input px-3 py-2 text-sm font-medium hover:bg-accent focus-within:ring-2 focus-within:ring-ring">
+            Upload final document
+            <input
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+              aria-label="Upload final document"
+              className="sr-only"
+              disabled={busy}
+              onChange={handleIssuedDocumentUpload}
+            />
+          </label>
+        </section>
+      )}
+
+      {(docs || []).some((document) => document.document_kind === "issued") && (
+        <section className="mb-6 rounded-xl border border-border bg-card p-5">
+          <h2 className="font-heading font-semibold text-foreground mb-3">Final document</h2>
+          <ul className="space-y-2">
+            {docs.filter((document) => document.document_kind === "issued").map((document) => (
+              <li key={document.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/30 p-3">
+                <div>
+                  <p className="text-sm font-medium">{document.file_name || "Issued document"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {document.shared_at
+                      ? `Shared with customer ${new Date(document.shared_at).toLocaleString()}`
+                      : user?.role === "customer" ? "This document is not available yet." : "Not yet shared with the customer."}
+                  </p>
+                </div>
+                {(user?.role !== "customer" || document.shared_at) && document.file_name && (
+                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => handleDownload(document)}>
+                    View or download
+                  </Button>
+                )}
+                {canManage && !document.shared_at && (
+                  <Button type="button" size="sm" disabled={busy} onClick={() => handleShareIssuedDocument(document)}>
+                    Share with customer
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
