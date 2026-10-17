@@ -1,0 +1,24 @@
+{
+  "properties": {
+    "role": {
+      "type": "string",
+      "description": "Role: customer, staff, owner, or admin",
+      "enum": [
+        "customer",
+        "staff",
+        "owner",
+        "admin"
+      ],
+      "default": "customer"
+    },
+    "mobile_number": {
+      "type": "string",
+      "description": "Primary identity \u2014 mobile number (normalized 10-digit)"
+    }
+  },
+  "required": [
+    "role"
+  ],
+  "name": "User",
+  "type": "object"
+}

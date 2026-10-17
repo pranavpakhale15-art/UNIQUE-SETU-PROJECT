@@ -1,0 +1,137 @@
+{
+  "name": "ApplicationDocument",
+  "type": "object",
+  "properties": {
+    "application_id": {
+      "type": "string"
+    },
+    "customer_id": {
+      "type": "string",
+      "description": "Denormalized application owner for RLS"
+    },
+    "checklist_item_id": {
+      "type": "string"
+    },
+    "checklist_item_label_mr": {
+      "type": "string"
+    },
+    "checklist_item_label_en": {
+      "type": "string"
+    },
+    "checklist_item_label_hi": {
+      "type": "string"
+    },
+    "file_uri": {
+      "type": "string",
+      "description": "Private storage URI from UploadPrivateFile"
+    },
+    "file_name": {
+      "type": "string"
+    },
+    "file_size": {
+      "type": "number"
+    },
+    "upload_date": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "submission_mode": {
+      "type": "string",
+      "enum": [
+        "online",
+        "physical"
+      ],
+      "default": "online"
+    },
+    "review_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "verified",
+        "rejected",
+        "replacement_requested",
+        "not_applicable"
+      ],
+      "default": "pending"
+    },
+    "reviewer_comments": {
+      "type": "string"
+    },
+    "received_by_staff_id": {
+      "type": "string"
+    },
+    "physical_status": {
+      "type": "string"
+    },
+    "internal_notes": {
+      "type": "string"
+    },
+    "retained_by_shop": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "application_id",
+    "customer_id",
+    "checklist_item_id",
+    "submission_mode",
+    "review_status"
+  ],
+  "rls": {
+    "read": {
+      "$or": [
+        {
+          "data.customer_id": "{{user.id}}"
+        },
+        {
+          "data.received_by_staff_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": "owner"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "create": {},
+    "update": {
+      "$or": [
+        {
+          "data.customer_id": "{{user.id}}"
+        },
+        {
+          "data.received_by_staff_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": "owner"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "user_condition": {
+            "role": "owner"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    }
+  }
+}
