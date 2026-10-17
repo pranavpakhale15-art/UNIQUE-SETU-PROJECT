@@ -35,6 +35,7 @@ class CustomerApplicationResponse(BaseModel):
     status: str
     customer_notes: str | None = None
     created_at: str
+    submitted_at: str | None = None
     updated_at: str
     completed_at: str | None = None
     service: dict[str, Any] | None = None

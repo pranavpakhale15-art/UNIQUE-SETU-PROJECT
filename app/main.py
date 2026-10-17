@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 import logging, time
 from fastapi import FastAPI, Request
@@ -5,12 +6,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.core.logging import configure_logging
-from app.database.mongodb import connect, close
+from app.database.mongodb import connect, close, get_db
 from app.database.indexes import create_indexes
 from app.api.v1.router import router
+from app.services.retention_service import cleanup_expired_completed_work
 
 configure_logging()
 logger=logging.getLogger(__name__)
+
+async def completed_work_retention_worker():
+    while True:
+        try:
+            result = await asyncio.to_thread(cleanup_expired_completed_work, get_db())
+            logger.info("Completed-work retention run finished: %s", result)
+        except Exception:
+            logger.exception("Completed-work retention run failed")
+        await asyncio.sleep(60 * 60)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -22,9 +33,15 @@ async def lifespan(app: FastAPI):
         logger.exception("Database startup failed")
         close()
         raise
+    retention_worker = asyncio.create_task(completed_work_retention_worker())
     try:
         yield
     finally:
+        retention_worker.cancel()
+        try:
+            await retention_worker
+        except asyncio.CancelledError:
+            pass
         close()
 
 app=FastAPI(title=settings.app_name,version="1.0.0",description="Independent API for Unique Solutions and Setu Kendra",lifespan=lifespan)

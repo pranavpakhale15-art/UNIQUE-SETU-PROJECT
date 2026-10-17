@@ -10,11 +10,20 @@ def create_indexes(db):
     db.applications.create_index([("application_number", ASCENDING)], unique=True, name="uniq_application_number")
     db.applications.create_index([("customer_id", ASCENDING), ("created_at", DESCENDING)])
     db.applications.create_index([("assigned_staff_id", ASCENDING), ("status", ASCENDING)])
+    db.applications.create_index([("status", ASCENDING), ("completed_at", DESCENDING)])
     db.application_documents.create_index([("application_id", ASCENDING), ("created_at", DESCENDING)])
+    db.application_documents.create_index(
+        [("application_id", ASCENDING)],
+        unique=True,
+        name="uniq_issued_document_per_application",
+        partialFilterExpression={"document_kind": "issued"},
+    )
     db.document_upload_intents.create_index([("expires_at", ASCENDING)], expireAfterSeconds=0)
     db.document_upload_intents.create_index([("application_id", ASCENDING), ("user_id", ASCENDING), ("state", ASCENDING)])
     db.application_status_history.create_index([("application_id", ASCENDING), ("timestamp", ASCENDING)])
     db.application_tasks.create_index([("assigned_staff_id", ASCENDING), ("status", ASCENDING), ("due_date", ASCENDING)])
+    db.application_tasks.create_index([("application_id", ASCENDING), ("status", ASCENDING), ("completed_at", DESCENDING)])
+    db.application_tasks.create_index([("status", ASCENDING), ("completed_at", ASCENDING)])
     db.notifications.create_index([("recipient_id", ASCENDING), ("is_read", ASCENDING), ("created_at", DESCENDING)])
     for name, index in db.notifications.index_information().items():
         if index.get("key") == [("dedupe_key", ASCENDING)] and index.get("unique") and index.get("sparse"):

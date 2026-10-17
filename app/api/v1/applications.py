@@ -8,8 +8,30 @@ from app.schemas.application import ApplicationCreate, ApplicationPatch, StatusC
 from app.utils.identifiers import application_number
 from app.services.audit_service import audit
 from app.services.notification_service import notify
+from app.services.retention_service import (
+    application_is_retained,
+    completed_work_cutoff,
+    retained_application_filter,
+)
 
 router = APIRouter()
+APPLICATION_PROGRESS_ORDER = (
+    "Approved by Authority",
+    "Awaiting Government Decision",
+    "Submitted to Government Authority",
+    "Rejected by Authority",
+    "In Progress",
+    "Ready for Processing",
+    "Correction Requested",
+    "Documents Incomplete",
+    "Documents Under Review",
+    "Received by Shop",
+    "Submitted by Customer",
+    "Draft",
+    "Rejected by Shop",
+    "Cancelled",
+)
+APPLICATION_PROGRESS_RANK = {status: rank for rank, status in enumerate(APPLICATION_PROGRESS_ORDER)}
 STATUSES = {"Draft","Submitted by Customer","Received by Shop","Documents Under Review","Documents Incomplete",
 "Correction Requested","Ready for Processing","In Progress","Submitted to Government Authority","Awaiting Government Decision",
 "Approved by Authority","Rejected by Authority","Completed by Shop","Rejected by Shop","Cancelled"}
@@ -37,7 +59,168 @@ def serial(doc):
         elif isinstance(v, datetime): doc[k] = v.isoformat()
     return doc
 
-def can_access(app, user):
+def customer_summary(db, customer_id):
+    try:
+        customer_id = ObjectId(customer_id)
+    except Exception:
+        return None
+    customer = db.users.find_one({"_id": customer_id})
+    if not customer:
+        return None
+    return {
+        "full_name": customer.get("full_name"),
+        "mobile_number": customer.get("mobile_number"),
+        "email": customer.get("email"),
+    }
+
+def submission_timestamp(db, application):
+    timestamp = application.get("submitted_at")
+    if timestamp:
+        return timestamp.isoformat() if hasattr(timestamp, "isoformat") else timestamp
+    history = db.application_status_history.find_one({
+        "application_id": application.get("_id"),
+        "new_status": "Submitted by Customer",
+    }, sort=[("timestamp", 1)])
+    timestamp = history.get("timestamp") if history else None
+    if timestamp is None and application.get("status") not in ("Draft", "Cancelled"):
+        timestamp = application.get("created_at")
+    return timestamp.isoformat() if hasattr(timestamp, "isoformat") else timestamp
+
+def completion_timestamp(db, application):
+    timestamp = application.get("completed_at")
+    if timestamp:
+        return timestamp
+    history = db.application_status_history.find_one({
+        "application_id": application["_id"],
+        "new_status": "Completed by Shop",
+    }, sort=[("timestamp", -1)])
+    return history.get("timestamp") if history else None
+
+
+def issued_document_for_application(db, application):
+    return db.application_documents.find_one({
+        "application_id": application["_id"],
+        "customer_id": application.get("customer_id"),
+        "document_kind": "issued",
+    })
+
+
+def application_dashboard_section(application, issued_document):
+    if application.get("status") != "Completed by Shop":
+        return "in_progress"
+    if issued_document and issued_document.get("shared_at"):
+        return "completed"
+    return "awaiting_customer_sharing"
+
+
+def sort_applications_by_progress(items):
+    return sorted(
+        items,
+        key=lambda item: (
+            APPLICATION_PROGRESS_RANK.get(item.get("status"), len(APPLICATION_PROGRESS_RANK)),
+            -_sort_timestamp(item.get("updated_at")),
+            item.get("application_number") or "",
+        ),
+    )
+
+
+def _sort_timestamp(value):
+    if not value:
+        return 0.0
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return 0.0
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.timestamp()
+
+
+def _shared_completed_application_ids(db):
+    shared_ids = []
+    for document in db.application_documents.find({
+        "document_kind": "issued",
+        "shared_at": {"$exists": True, "$ne": None},
+    }):
+        application = db.applications.find_one({
+            "_id": document.get("application_id"),
+            "customer_id": document.get("customer_id"),
+            "status": "Completed by Shop",
+        })
+        if application:
+            shared_ids.append(application["_id"])
+    return shared_ids
+
+
+def _final_document_application_query(user):
+    role = user.get("role")
+    if role in ("owner", "admin"):
+        if role == "owner" and not has_permission(user, "applications:manage"):
+            raise HTTPException(status_code=403, detail="Application management permission required")
+        return {}
+    if role == "staff" and has_permission(user, "applications:read:assigned"):
+        return {"assigned_staff_id": ObjectId(user["_id"])}
+    if role == "customer" and has_permission(user, "applications:read:self"):
+        return {"customer_id": ObjectId(user["_id"])}
+    raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _final_document_work(db, user, shared):
+    cutoff = completed_work_cutoff()
+    query = {
+        "status": "Completed by Shop",
+        **_final_document_application_query(user),
+        "$and": [retained_application_filter(db)],
+    }
+    records = []
+    for application in db.applications.find(query):
+        if not application_is_retained(db, application):
+            continue
+        issued_document = issued_document_for_application(db, application)
+        section = application_dashboard_section(application, issued_document)
+        if (section == "completed") != shared:
+            continue
+        completed_at = completion_timestamp(db, application)
+        if not completed_at:
+            continue
+        if completed_at.tzinfo is None:
+            completed_at = completed_at.replace(tzinfo=timezone.utc)
+        if completed_at < cutoff:
+            continue
+        service = db.services.find_one({"_id": application.get("service_id")})
+        service_name = service.get("name", {}) if service else {}
+        customer = customer_summary(db, application.get("customer_id"))
+        item = {
+            "id": str(application["_id"]),
+            "application_number": application.get("application_number"),
+            "status": application.get("status"),
+            "completed_at": completed_at.isoformat(),
+            "updated_at": application.get("updated_at").isoformat() if application.get("updated_at") else None,
+            "service_name_mr": service_name.get("mr", ""),
+            "service_name_en": service_name.get("en", ""),
+            "service_name_hi": service_name.get("hi", ""),
+            "customer": customer if user.get("role") != "customer" else None,
+            "final_document_status": "Shared with customer" if section == "completed" else (
+                "Uploaded, not shared" if issued_document and issued_document.get("storage_key") else "Not uploaded"
+            ),
+            "issued_document": None,
+        }
+        if issued_document:
+            item["issued_document"] = {
+                "id": str(issued_document["_id"]),
+                "file_name": issued_document.get("original_filename"),
+                "created_at": issued_document.get("created_at").isoformat() if issued_document.get("created_at") else None,
+                "updated_at": issued_document.get("updated_at").isoformat() if issued_document.get("updated_at") else None,
+                "shared_at": issued_document.get("shared_at").isoformat() if issued_document.get("shared_at") else None,
+            }
+        records.append(item)
+    return sorted(records, key=lambda item: (-_sort_timestamp(item["completed_at"]), item["application_number"] or ""))
+
+
+def can_access(app, user, db=None):
+    if db is not None and not application_is_retained(db, app):
+        return False
     role = user.get("role")
     return (role == "admin" or
             (role == "customer" and has_permission(user, "applications:read:self") and str(app.get("customer_id")) == user["_id"]) or
@@ -74,12 +257,27 @@ def list_applications(status: str | None = None, q: str | None = None, page: int
     else: raise HTTPException(status_code=403,detail="Forbidden")
     if status: query["status"] = status
     if q: query["application_number"] = {"$regex": re.escape(q), "$options":"i"}
-    total = db.applications.count_documents(query)
-    items = [serial(x) for x in db.applications.find(query).sort("created_at",-1).skip((page-1)*page_size).limit(page_size)]
+    section_filter = {"status": {"$ne": "Completed by Shop"}}
+    if role == "customer":
+        section_filter = {"_id": {"$nin": _shared_completed_application_ids(db)}}
+    query["$and"] = [retained_application_filter(db), section_filter]
+    applications = [serial(x) for x in db.applications.find(query)]
+    total = len(applications)
+    items = sort_applications_by_progress(applications)
+    items = items[(page-1)*page_size:page*page_size]
     for item in items:
         service_id = item.get("service_id")
+        item["submitted_at"] = submission_timestamp(db, {
+            "_id": ObjectId(item["_id"]),
+            "status": item.get("status"),
+            "created_at": item.get("created_at"),
+            "submitted_at": item.get("submitted_at"),
+        })
         service = db.services.find_one({"_id": ObjectId(service_id)}) if service_id else None
         item["service"] = serial(service) if service else None
+        if role in ("owner", "staff", "admin"):
+            customer_id = item.get("customer_id")
+            item["customer"] = customer_summary(db, customer_id) if customer_id else None
         if service:
             item["service_name_mr"] = service.get("name", {}).get("mr", "")
             item["service_name_en"] = service.get("name", {}).get("en", "")
@@ -90,16 +288,31 @@ def list_applications(status: str | None = None, q: str | None = None, page: int
         items = [CustomerApplicationResponse.model_validate(item).model_dump(by_alias=True) for item in items]
     return {"items":items,"page":page,"page_size":page_size,"total":total,"pages":(total+page_size-1)//page_size}
 
+@router.get("/completed-work")
+def list_completed_work(user=Depends(current_user), db=Depends(db_dep)):
+    items = _final_document_work(db, user, shared=True)
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/awaiting-customer-sharing")
+def list_awaiting_customer_sharing(user=Depends(current_user), db=Depends(db_dep)):
+    items = _final_document_work(db, user, shared=False)
+    return {"items": items, "total": len(items)}
+
 @router.get("/{application_id}")
 def get_application(application_id: str, user=Depends(current_user), db=Depends(db_dep)):
     try: oid=ObjectId(application_id)
     except Exception: raise HTTPException(status_code=404,detail="Application not found")
     app=db.applications.find_one({"_id":oid})
-    if not app or not can_access(app,user): raise HTTPException(status_code=404,detail="Application not found")
+    if not app or not can_access(app,user,db): raise HTTPException(status_code=404,detail="Application not found")
+    submitted_at = submission_timestamp(db, app)
     app=serial(app)
+    app["submitted_at"] = submitted_at
     app["service"] = serial(db.services.find_one({"_id":ObjectId(app["service_id"])})) if app.get("service_id") else None
     if user.get("role") == "customer":
         return CustomerApplicationResponse.model_validate(app)
+    customer_id = app.get("customer_id")
+    app["customer"] = customer_summary(db, customer_id) if customer_id else None
     if user.get("role") == "staff":
         app.pop("internal_notes", None)
     return app
@@ -136,7 +349,7 @@ def change_status(application_id, payload, user, db):
     try: oid=ObjectId(application_id)
     except Exception: raise HTTPException(status_code=404,detail="Application not found")
     app=db.applications.find_one({"_id":oid})
-    if not app or not can_access(app,user): raise HTTPException(status_code=404,detail="Application not found")
+    if not app or not can_access(app,user,db): raise HTTPException(status_code=404,detail="Application not found")
     target=payload.status
     if target not in STATUSES: raise HTTPException(status_code=422,detail="Unknown application status")
     if user.get("role")=="customer":
@@ -175,7 +388,12 @@ def change_status(application_id, payload, user, db):
         if missing_ids:
             raise HTTPException(status_code=409, detail={"message": "Required documents are missing", "missing_checklist_item_ids": missing_ids})
     now=datetime.now(timezone.utc)
-    result=db.applications.update_one({"_id":oid,"status":app["status"]},{"$set":{"status":target,"updated_at":now,"completed_at":now if target=="Completed by Shop" else app.get("completed_at")}})
+    result=db.applications.update_one({"_id":oid,"status":app["status"]},{"$set":{
+        "status":target,
+        "updated_at":now,
+        "completed_at":now if target=="Completed by Shop" else app.get("completed_at"),
+        "submitted_at":now if target=="Submitted by Customer" else app.get("submitted_at"),
+    }})
     if not result.modified_count: raise HTTPException(status_code=409,detail="Application changed concurrently; reload and retry")
     history_result = db.application_status_history.insert_one({"application_id":oid,"previous_status":app["status"],"new_status":target,"actor_id":ObjectId(user["_id"]),"timestamp":now,"reason":payload.reason})
     audit(db,user["_id"],"application.status_changed","application",oid,{"from":app["status"],"to":target})
@@ -215,7 +433,7 @@ def history(application_id: str, user=Depends(current_user), db=Depends(db_dep))
     try: oid=ObjectId(application_id)
     except Exception: raise HTTPException(status_code=404,detail="Application not found")
     app=db.applications.find_one({"_id":oid})
-    if not app or not can_access(app,user): raise HTTPException(status_code=404,detail="Application not found")
+    if not app or not can_access(app,user,db): raise HTTPException(status_code=404,detail="Application not found")
     return [serial(x) for x in db.application_status_history.find({"application_id":oid}).sort("timestamp",1)]
 
 @router.post("/{application_id}/comments", status_code=201)
@@ -223,7 +441,7 @@ def add_comment(application_id: str, payload: CommentCreate, user=Depends(curren
     try: oid=ObjectId(application_id)
     except Exception: raise HTTPException(status_code=404,detail="Application not found")
     app=db.applications.find_one({"_id":oid})
-    if not app or not can_access(app,user): raise HTTPException(status_code=404,detail="Application not found")
+    if not app or not can_access(app,user,db): raise HTTPException(status_code=404,detail="Application not found")
     if payload.visibility not in ("customer","internal"): raise HTTPException(status_code=422,detail="Invalid visibility")
     if user.get("role") == "staff":
         raise HTTPException(status_code=403,detail="Staff accounts are read-only")
@@ -240,7 +458,7 @@ def list_comments(application_id: str, user=Depends(current_user), db=Depends(db
     try: oid=ObjectId(application_id)
     except Exception: raise HTTPException(status_code=404,detail="Application not found")
     app=db.applications.find_one({"_id":oid})
-    if not app or not can_access(app,user): raise HTTPException(status_code=404,detail="Application not found")
+    if not app or not can_access(app,user,db): raise HTTPException(status_code=404,detail="Application not found")
     query={"application_id":oid}
     if user.get("role") in ("customer", "staff"): query["visibility"]="customer"
     comments=[]

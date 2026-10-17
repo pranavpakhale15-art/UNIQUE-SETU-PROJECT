@@ -3,7 +3,7 @@ from fastapi import HTTPException, status
 ROLE_PERMISSIONS = {
     "customer": {"profile:read:self", "profile:update:self", "services:read", "applications:create:self",
                  "applications:read:self", "documents:manage:self", "notifications:read:self"},
-    "staff": {"services:read", "applications:read:assigned"},
+    "staff": {"services:read", "applications:read:assigned", "tasks:read:assigned"},
     "owner": {"services:read", "applications:manage", "documents:review", "tasks:manage",
               "users:manage:staff", "reports:read", "notifications:read:staff"},
     "admin": {"*"},
