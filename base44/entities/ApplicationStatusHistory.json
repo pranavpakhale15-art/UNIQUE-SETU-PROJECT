@@ -1,0 +1,72 @@
+{
+  "name": "ApplicationStatusHistory",
+  "type": "object",
+  "properties": {
+    "application_id": {
+      "type": "string"
+    },
+    "customer_id": {
+      "type": "string",
+      "description": "Denormalized for RLS"
+    },
+    "previous_status": {
+      "type": "string"
+    },
+    "new_status": {
+      "type": "string"
+    },
+    "actor_id": {
+      "type": "string"
+    },
+    "actor_role": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "application_id",
+    "new_status",
+    "timestamp"
+  ],
+  "rls": {
+    "read": {
+      "$or": [
+        {
+          "data.customer_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": "staff"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "owner"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "create": {},
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

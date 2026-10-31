@@ -1,10 +1,48 @@
+# ==============================
+# Environment variables and secrets
+# ==============================
 .env
-.venv/
-venv/
+.env.*
+!.env.example
+
+# ==============================
+# Python / FastAPI Backend
+# ==============================
 __pycache__/
 *.py[cod]
+*.pyo
+.venv/
+venv/
+ENV/
+env/
 .pytest_cache/
-.coverage
-private_uploads/
-*.log
+.mypy_cache/
+.ruff_cache/
+*.db
+*.sqlite3
+
+# ==============================
+# Node.js / React Frontend
+# ==============================
+node_modules/
+dist/
+build/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# ==============================
+# IDE and OS
+# ==============================
+.vscode/
+.idea/
 .DS_Store
+Thumbs.db
+
+# ==============================
+# Uploads and temporary files
+# ==============================
+uploads/
+tmp/
+temp/

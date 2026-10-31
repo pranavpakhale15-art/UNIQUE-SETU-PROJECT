@@ -1,0 +1,143 @@
+{
+  "name": "Application",
+  "type": "object",
+  "properties": {
+    "application_id": {
+      "type": "string",
+      "description": "Human-readable ID e.g. APP-2026-0001"
+    },
+    "service_id": {
+      "type": "string"
+    },
+    "service_slug": {
+      "type": "string"
+    },
+    "service_name_mr": {
+      "type": "string"
+    },
+    "service_name_en": {
+      "type": "string"
+    },
+    "service_name_hi": {
+      "type": "string"
+    },
+    "service_version": {
+      "type": "number",
+      "default": 1
+    },
+    "checklist_snapshot": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "submitted",
+        "received_by_shop",
+        "under_review",
+        "documents_incomplete",
+        "correction_requested",
+        "ready_for_processing",
+        "in_progress",
+        "submitted_to_authority",
+        "awaiting_authority_decision",
+        "approved",
+        "rejected",
+        "completed",
+        "cancelled"
+      ],
+      "default": "draft"
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "default": "medium"
+    },
+    "internal_deadline": {
+      "type": "string",
+      "format": "date"
+    },
+    "assigned_staff_id": {
+      "type": "string"
+    },
+    "customer_mobile": {
+      "type": "string"
+    },
+    "customer_comments": {
+      "type": "string"
+    },
+    "completion_details": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "service_id",
+    "status"
+  ],
+  "rls": {
+    "read": {
+      "$or": [
+        {
+          "created_by_id": "{{user.id}}"
+        },
+        {
+          "data.assigned_staff_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": "owner"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "create": {},
+    "update": {
+      "$or": [
+        {
+          "created_by_id": "{{user.id}}"
+        },
+        {
+          "data.assigned_staff_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": "owner"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "user_condition": {
+            "role": "owner"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    }
+  }
+}

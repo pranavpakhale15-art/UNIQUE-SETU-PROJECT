@@ -1,0 +1,108 @@
+{
+  "name": "Service",
+  "type": "object",
+  "properties": {
+    "service_slug": {
+      "type": "string",
+      "description": "Stable slug identifier"
+    },
+    "name_mr": {
+      "type": "string"
+    },
+    "name_en": {
+      "type": "string"
+    },
+    "name_hi": {
+      "type": "string"
+    },
+    "description_mr": {
+      "type": "string"
+    },
+    "description_en": {
+      "type": "string"
+    },
+    "description_hi": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string"
+    },
+    "is_published": {
+      "type": "boolean",
+      "default": true
+    },
+    "display_order": {
+      "type": "number",
+      "default": 0
+    },
+    "version": {
+      "type": "number",
+      "default": 1
+    },
+    "checklist": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label_mr": {
+            "type": "string"
+          },
+          "label_en": {
+            "type": "string"
+          },
+          "label_hi": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean",
+            "default": true
+          },
+          "conditional": {
+            "type": "boolean",
+            "default": false
+          },
+          "conditional_note_mr": {
+            "type": "string"
+          },
+          "conditional_note_en": {
+            "type": "string"
+          },
+          "conditional_note_hi": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label_mr"
+        ]
+      }
+    }
+  },
+  "required": [
+    "service_slug",
+    "name_mr",
+    "name_en",
+    "name_hi"
+  ],
+  "rls": {
+    "read": {},
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}
