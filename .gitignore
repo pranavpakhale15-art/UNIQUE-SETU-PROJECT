@@ -46,3 +46,9 @@ Thumbs.db
 uploads/
 tmp/
 temp/
+
+# Python virtual environment
+.venv-py312/
+.venv/
+venv/
+

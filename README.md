@@ -1,5 +1,6 @@
-<<<<<<< HEAD
-# Unique Solutions and Setu Kendra — Backend
+# UNIQUE SETU — React and FastAPI Application
+
+This repository contains the React/Vite frontend and the FastAPI/MongoDB backend. The browser app uses the independent FastAPI API by default. The optional Base44 CLI workflow is documented at the end for Base44-specific development.
 
 Independent FastAPI + MongoDB backend intended to connect to an existing React frontend.
 
@@ -12,7 +13,7 @@ Independent FastAPI + MongoDB backend intended to connect to an existing React f
 - Local private file storage is provided for development. Production can use an S3-compatible private bucket or Cloudinary authenticated assets; signed download URLs expire after five minutes. File content is checked with `python-magic`; malware scanning is not implemented.
 - The readiness endpoint returns HTTP 503 if MongoDB cannot be pinged. Startup also fails if MongoDB is not configured or reachable.
 - Customers can browse published services and track applications. Owners/admins can review and progress applications; staff can access assigned application data and documents without verification or rejection permissions.
-- No live MongoDB or object-storage integration was available during local verification.
+- The local readiness endpoint currently confirms a MongoDB connection; live Cloudinary/S3 uploads and production deployment have not been verified.
 - No production deployment has been performed or verified by this source package.
 
 ## Requirements
@@ -24,7 +25,7 @@ Independent FastAPI + MongoDB backend intended to connect to an existing React f
 ## Local setup (Windows PowerShell)
 
 ```powershell
-cd unique-solutions-backend
+cd backend
 py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
@@ -32,7 +33,7 @@ pip install -r requirements-lock.txt
 Copy-Item .env.example .env
 ```
 
-Edit `.env` and set `MONGODB_URI`, `MONGODB_DATABASE`, and a newly generated `JWT_SECRET_KEY` of at least 32 characters. Generate a secret with `python -c "import secrets; print(secrets.token_urlsafe(48))"`. The example uses a local MongoDB URI. Start local MongoDB with Docker if available:
+Edit `backend/.env` and set `MONGODB_URI`, `MONGODB_DATABASE`, and a newly generated `JWT_SECRET_KEY` of at least 32 characters. Generate a secret with `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Start local MongoDB with Docker if available:
 
 ```powershell
 docker run --name unique-solutions-mongodb -p 27017:27017 -v unique-solutions-mongodb-data:/data/db -d mongo:7
@@ -58,21 +59,21 @@ The application fails startup when MongoDB cannot be reached; this is intentiona
 
 ## Start the React frontend
 
-In a second PowerShell window, start the frontend using the same `127.0.0.1` host configured for backend CORS:
+From the project root in a second PowerShell window, start the frontend using the same `127.0.0.1` host configured for backend CORS:
 
 ```powershell
-cd ..\unique-solutions-frontend
+cd frontend
 npm install
 npm run dev
 ```
 
-Open http://127.0.0.1:5173. The frontend's `.env.example` points to `http://127.0.0.1:8000/api/v1`; copy it to `.env` if needed. Run `python -m scripts.seed_services` to publish the 21 provided Marathi service checklists. Sign in with a mobile number and password, selecting the account type assigned to that account; the backend verifies the selected type. Public registration is mobile-number based and creates customer accounts only.
+Open http://127.0.0.1:5173. The frontend defaults to `http://127.0.0.1:8000/api/v1`; set `VITE_API_BASE_URL` in `frontend/.env.local` only when using a different API URL. Run `python -m scripts.seed_services` from `backend/` to publish the 21 provided Marathi service checklists. Sign in with a mobile number and password, selecting the account type assigned to that account; the backend verifies the selected type. Public registration is mobile-number based and creates customer accounts only.
 
 Customer accounts can browse services, create applications, upload documents, and track status. Owners can review applications and documents, set priority and due dates, assign staff, and maintain follow-up tasks. Staff can only read assigned applications and download or copy application data. Admins manage accounts and service publication.
 
 ## Bootstrap privileged users
 
-Run from the project root with `.env` configured:
+Run from `backend/` with `backend/.env` configured:
 
 ```powershell
 python -m scripts.create_admin
@@ -108,6 +109,9 @@ Registration and login set HttpOnly access/refresh cookies and a readable CSRF c
 ### Services
 - `GET /services`
 - `GET /services/{service_id}`
+- `GET /services/categories` (visible catalogue sections)
+- `POST /services/categories`, `PATCH /services/categories/{category_id}`, `DELETE /services/categories/{category_id}` (admin)
+- `PUT /services/{service_id}/thumbnail` and `GET /services/{service_id}/thumbnail`
 - `POST /services` (admin)
 - `PATCH /services/{service_id}` (admin)
 - `POST /services/{service_id}/publish` (admin)
@@ -117,6 +121,7 @@ Registration and login set HttpOnly access/refresh cookies and a readable CSRF c
 - `POST /applications`
 - `GET /applications`
 - `GET /applications/{application_id}`
+- `GET /applications/completed-documents?q=...&page=1&page_size=20` (owner/admin)
 - `PATCH /applications/{application_id}`
 - `POST /applications/{application_id}/submit`
 - `POST /applications/{application_id}/assign` (owner/admin)
@@ -133,6 +138,7 @@ Application status transitions are restricted. Government authority approval is 
 - `POST /applications/{application_id}/documents/confirm` (multipart `upload_id` + `file` in local mode; JSON `upload_id` after signed S3 upload)
 - `POST /applications/{application_id}/documents/physical-receipt`
 - `GET /applications/{application_id}/documents`
+- `GET /documents/released` (customer's shared owner-issued documents only)
 - `GET /documents/{document_id}/download-url`
 - `GET /documents/{document_id}/download`
 - `POST /documents/{document_id}/review`
@@ -155,6 +161,7 @@ Profile photo replacements update the customer's own MongoDB user record and ret
 ### Notifications
 - `GET /notifications`
 - `GET /notifications/unread-count`
+- `GET /notifications/unread-documents`
 - `POST /notifications/{notification_id}/read`
 - `POST /notifications/read-all`
 
@@ -239,7 +246,7 @@ fetch(`${API}/applications`, {
 });
 ```
 
-The existing frontend's API calls must be inspected before claiming drop-in compatibility. This package has not inspected your React source code.
+The frontend is integrated through `frontend/src/api/backendClient.js`; endpoint and auth details are documented in `backend/docs/FRONTEND_INTEGRATION.md`.
 
 ## Deployment and production checklist
 
@@ -259,9 +266,9 @@ Use MongoDB Atlas automated backups if included in your selected plan, or schedu
 
 ## Known limitations
 
-This backend has not been connected to this workspace's MongoDB because no local service, Docker daemon, or Atlas URI was available. S3-compatible storage, production CORS, secure cookies, and readiness are implemented but require real infrastructure configuration and integration tests. Password recovery remains disabled until a verified provider is configured. Malware scanning and business-approved checklists are not supplied. Do not process real identity documents until those prerequisites are complete and verified.
-=======
-# Base44 Project
+The local API readiness endpoint currently reports MongoDB connected. This does not verify production deployment or live Cloudinary/S3 integration. Production CORS, secure cookies, and private storage require production configuration and integration tests. Password recovery remains disabled until a verified provider is configured. Malware scanning and business-approved checklists are not supplied. Do not process real identity documents until those prerequisites are complete and verified.
+
+## Optional Base44 CLI Workflow
 
 Use this repository to run and edit the app locally, then publish changes back through Base44.
 
@@ -323,4 +330,3 @@ GitHub integration: [https://docs.base44.com/developers/app-code/local-developme
 Local development: [https://docs.base44.com/developers/backend/overview/local-dev/local-development-overview](https://docs.base44.com/developers/backend/overview/local-dev/local-development-overview)
 
 Support: [https://app.base44.com/support](https://app.base44.com/support)
->>>>>>> origin/frontend
