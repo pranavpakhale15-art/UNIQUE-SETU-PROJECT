@@ -9,7 +9,7 @@ export default function Logo({ size = "md", to = "/" }) {
   return (
     <Link to={to} className="flex items-center gap-2.5 group">
       <img
-        src="/logo.png"
+        src={`${import.meta.env.BASE_URL}logo.png`}
         alt={t("common.appName")}
         className={`${dim} rounded-xl object-cover shadow-md shadow-orange-900/10 ring-1 ring-amber-700/20 shrink-0 transition-transform duration-300 group-hover:scale-105`}
       />
