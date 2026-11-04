@@ -1,50 +1,41 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useState } from "react";
 import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
+import { useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/AuthContext";
 import { useLang } from "@/lib/i18n/LanguageContext";
 import Logo from "@/components/Logo";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
-import { Menu, X, Phone, MapPin, ChevronDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { LogIn, LogOut, LayoutDashboard, Menu, X, Phone, MapPin, ShieldCheck, Bell } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
-import { listServiceCategories, listServices } from "@/api/backendClient";
+import { getUnreadNotificationCount } from "@/api/backendClient";
 
 function Layout() {
   const { user, isAuthenticated, logout } = useAuth();
-  const { t, loc, lang } = useLang();
+  const { t } = useLang();
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false);
-  const [serviceCategories, setServiceCategories] = useState([]);
-
-  useEffect(() => setOpen(false), [location.pathname]);
+  const queryClient = useQueryClient();
+  const userId = user?.id || user?._id;
+  const unreadCountQuery = useQuery({
+    queryKey: ["notification-unread-count", userId],
+    queryFn: getUnreadNotificationCount,
+    select: (result) => result.unread_count,
+    enabled: Boolean(isAuthenticated && userId),
+    refetchInterval: 60_000,
+  });
 
   useEffect(() => {
-    let active = true;
-    if (!isAuthenticated || user?.role !== "customer") {
-      setServiceCategories([]);
-      return () => { active = false; };
-    }
-    Promise.all([listServiceCategories(), listServices(lang)]).then(([categories, services]) => {
-      if (!active) return;
-      const managed = categories.map((category) => ({
-        id: `section-${category.id}`,
-        label: loc(category, "name") || category.slug,
-        to: `/services/category/section-${category.id}`,
-      }));
-      const managedIds = new Set(categories.map((category) => category.id));
-      const legacy = [...new Set((services.items || []).filter((service) => !service.section_id || !managedIds.has(service.section_id))
-        .map((service) => service.category).filter(Boolean))].map((category) => ({
-        id: `legacy-${category}`,
-        label: category,
-        to: `/services/category/legacy-${encodeURIComponent(category)}`,
-      }));
-      setServiceCategories([...managed, ...legacy]);
-    }).catch((error) => {
-      if (active) setServiceCategories([]);
-      console.error("Unable to load service categories for navigation:", error);
-    });
-    return () => { active = false; };
-  }, [isAuthenticated, user?.role, lang, loc]);
+    const refreshCount = () => queryClient.invalidateQueries({ queryKey: ["notification-unread-count"] });
+    window.addEventListener("setu:notification-read", refreshCount);
+    window.addEventListener("setu:notifications-read-all", refreshCount);
+    return () => {
+      window.removeEventListener("setu:notification-read", refreshCount);
+      window.removeEventListener("setu:notifications-read-all", refreshCount);
+    };
+  }, [queryClient]);
 
   const scrollToSection = (id) => {
     setOpen(false);
@@ -74,111 +65,133 @@ function Layout() {
     }
   };
   const dashboardPath = user?.role === "customer" ? "/dashboard" : "/workspace";
-  const roleLinks = user?.role === "customer" ? [
-    { label: "Dashboard", to: "/dashboard" },
-    { label: "New Application", to: "/services" },
-    { label: "My Applications / Application History", to: "/applications" },
-    { label: "My Documents", to: "/documents" },
-    { label: "Notifications", to: "/notifications" },
-    { label: "Profile", to: "/profile" },
-    { label: "Help & Support", to: "/help" },
-  ] : user?.role === "owner" ? [
-    { label: "Owner Dashboard", to: "/workspace" },
-    { label: "All Applications", to: "/workspace#applications" },
-    { label: "Applications by Document Category", to: "/workspace#categories" },
-    { label: "Pending Verification", to: "/workspace#verification" },
-    { label: "Completed Documents", to: "/workspace#completed-documents" },
-    { label: "Customer Management", to: "/workspace#customers" },
-    { label: "Notifications", to: "/notifications" },
-    { label: "Profile", to: "/profile" },
-  ] : user?.role === "admin" ? [
-    { label: "Admin Dashboard", to: "/workspace" },
-    { label: "Manage Services", to: "/workspace#services-admin" },
-    { label: "Add New Service", to: "/workspace#service-form" },
-    { label: "Manage Service Categories", to: "/workspace#categories-admin" },
-    { label: "Manage Document Requirements", to: "/workspace#service-form" },
-    { label: "Manage Thumbnails and Images", to: "/workspace#service-form" },
-    { label: "Manage Customers", to: "/workspace#customers" },
-    { label: "Manage Owners and Staff", to: "/workspace#customers" },
-    { label: "Manage Applications", to: "/workspace#applications" },
-    { label: "Reports and Analytics", to: "/workspace#reports" },
-    { label: "Notifications", to: "/notifications" },
-    { label: "Settings", to: "/workspace#settings" },
-    { label: "Profile", to: "/profile" },
-  ] : user?.role === "staff" ? [
-    { label: "Assigned Applications", to: "/workspace#applications" },
-    { label: "Notifications", to: "/notifications" },
-    { label: "Profile", to: "/profile" },
-  ] : [];
 
-  const guestLinks = useMemo(() => ([
-    { label: t("nav.home"), to: "/" },
+  const navItems = [
+    { label: t("nav.home"), action: () => { setOpen(false); navigate("/"); } },
+    { label: t("nav.services"), action: () => { setOpen(false); navigate("/services"); } },
     { label: t("nav.howItWorks"), action: () => scrollToSection("how") },
-    { label: "Register Now", to: "/register" },
-    { label: t("nav.login"), to: "/login" },
-  ]), [t]);
+    { label: t("nav.contact"), action: () => scrollToSection("contact") },
+  ];
 
-  const renderRoleMenu = () => (
-    <>
-      {roleLinks.map((item) => <Link key={item.label} to={item.to} onClick={() => setOpen(false)} className="block rounded-md px-3 py-2.5 text-sm font-medium hover:bg-accent">{item.label}</Link>)}
-      {user?.role === "customer" && (
-        <details className="group rounded-md border-t border-border pt-1">
-          <summary className="flex cursor-pointer list-none items-center justify-between rounded-md px-3 py-2.5 text-sm font-medium hover:bg-accent">Document Categories <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" /></summary>
-          {serviceCategories.map((category) => <Link key={category.id} to={category.to} onClick={() => setOpen(false)} className="block rounded-md py-2 pl-6 pr-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">{category.label}</Link>)}
-          {serviceCategories.length === 0 && <p className="px-6 py-2 text-xs text-muted-foreground">No published service categories.</p>}
-        </details>
-      )}
-    </>
-  );
+  const accountLinks = user?.role === "customer"
+    ? [
+      { label: t("nav.dashboard"), to: "/dashboard" },
+      { label: "My applications", to: "/applications" },
+      { label: "My documents", to: "/documents" },
+      { label: "Notifications", to: "/notifications" },
+      { label: "Profile", to: "/profile" },
+      { label: "Help & support", to: "/help" },
+    ]
+    : isAuthenticated
+      ? [
+        { label: t("nav.dashboard"), to: dashboardPath },
+        { label: "Notifications", to: "/notifications" },
+        { label: "Profile", to: "/profile" },
+      ]
+      : [];
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <header className="sticky top-0 z-40 border-b border-border bg-card/85 backdrop-blur supports-[backdrop-filter]:bg-card/70">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-end gap-3 px-4">
-          {!isAuthenticated && <nav className="hidden items-center gap-1 2xl:flex" aria-label="Guest navigation">
-            {guestLinks.map((item) => item.to
-              ? <Link key={item.label} to={item.to} className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground">{item.label}</Link>
-              : <button key={item.label} type="button" onClick={item.action} className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground">{item.label}</button>)}
-          </nav>}
-          <div className="ml-auto flex min-w-0 items-center gap-2">
-            <div className="hidden 2xl:block"><LanguageSwitcher /></div>
-            <Logo to={isAuthenticated ? dashboardPath : "/"} />
-            <button className="rounded-md p-2 hover:bg-accent" onClick={() => setOpen(!open)} aria-label={open ? "Close navigation menu" : "Open navigation menu"} aria-expanded={open} aria-controls="site-navigation-menu">
-              {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+      <div className="hidden sm:block border-b border-primary-foreground/10 bg-primary text-primary-foreground">
+        <div className="max-w-7xl mx-auto px-6 h-8 flex items-center justify-between text-[11px] font-medium">
+          <span className="inline-flex items-center gap-1.5 opacity-80"><ShieldCheck className="w-3.5 h-3.5" />{t("common.tagline")}</span>
+          <div className="flex items-center gap-5">
+            <span className="inline-flex items-center gap-1.5 opacity-80"><MapPin className="w-3 h-3" />{t("home.address")}</span>
+            <a href="tel:+918149921445" className="inline-flex items-center gap-1.5 transition-opacity hover:opacity-75"><Phone className="w-3 h-3" />{t("home.phone")}</a>
+          </div>
+        </div>
+      </div>
+      <header className="sticky top-0 z-40 border-b border-border/70 bg-card/90 backdrop-blur-xl supports-[backdrop-filter]:bg-card/75">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-[4.5rem] flex items-center justify-between gap-2">
+          <Logo />
+          <nav className="hidden md:flex items-center gap-1">
+            {navItems.map((n) => (
+              <button
+                key={n.label}
+                onClick={n.action}
+                className="px-3.5 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
+              >
+                {n.label}
+              </button>
+            ))}
+          </nav>
+          <div className="flex items-center gap-2">
+            <div className="hidden sm:block"><LanguageSwitcher /></div>
+            {isAuthenticated ? (
+              <>
+                <Button asChild variant="ghost" size="sm" className="relative" aria-label="Notifications">
+                  <Link to="/notifications" aria-label={unreadCountQuery.isError
+                    ? "Notifications; unread count unavailable"
+                    : `Notifications${unreadCountQuery.data ? `, ${unreadCountQuery.data} unread` : ""}`}>
+                    <Bell className="h-4 w-4" />
+                    {unreadCountQuery.isError ? (
+                      <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">!</span>
+                    ) : unreadCountQuery.data > 0 ? (
+                      <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+                        {unreadCountQuery.data > 99 ? "99+" : unreadCountQuery.data}
+                      </span>
+                    ) : null}
+                  </Link>
+                </Button>
+                <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
+                  <Link to={dashboardPath}><LayoutDashboard className="w-4 h-4 mr-1.5" />{t("nav.dashboard")}</Link>
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleLogout} className="hidden sm:inline-flex">
+                  <LogOut className="w-4 h-4 mr-1.5" />{t("nav.logout")}
+                </Button>
+              </>
+            ) : (
+              <Button asChild size="sm" className="hidden sm:inline-flex">
+                <Link to="/login"><LogIn className="w-4 h-4 mr-1.5" />{t("nav.login")}</Link>
+              </Button>
+            )}
+            <button className="p-2.5 -mr-2 rounded-xl border border-border bg-card" onClick={() => setOpen(!open)} aria-label={open ? "Close menu" : "Open menu"} aria-expanded={open}>
+              {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
           </div>
         </div>
         {open && (
-          <div id="site-navigation-menu" className="absolute right-4 top-16 z-50 max-h-[calc(100vh-5rem)] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-border bg-card p-3 shadow-xl">
-            <div className="mb-2 flex justify-end 2xl:hidden"><LanguageSwitcher /></div>
-            {isAuthenticated ? (
-              <>
-                <p className="px-3 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{user?.role} navigation</p>
-                {renderRoleMenu()}
-                <button onClick={handleLogout} className="mt-2 block w-full rounded-md border-t border-border px-3 py-2.5 text-left text-sm font-medium text-destructive hover:bg-accent">{t("nav.logout")}</button>
-              </>
-            ) : guestLinks.map((item) => item.to
-              ? <Link key={item.label} to={item.to} onClick={() => setOpen(false)} className="block rounded-md px-3 py-2.5 text-sm font-medium hover:bg-accent">{item.label}</Link>
-              : <button key={item.label} type="button" onClick={item.action} className="block w-full rounded-md px-3 py-2.5 text-left text-sm font-medium hover:bg-accent">{item.label}</button>)}
+          <div className="border-t border-border bg-card px-4 py-4 space-y-1 shadow-xl">
+            <div className="pb-2"><LanguageSwitcher /></div>
+            {navItems.map((n) => (
+              <button key={n.label} onClick={n.action} className="block w-full text-left px-3 py-2 text-sm font-medium rounded-md hover:bg-accent">
+                {n.label}
+              </button>
+            ))}
+            <div className="pt-2 border-t border-border space-y-1">
+              {isAuthenticated ? (
+                <>
+                  {accountLinks.map((item) => (
+                    <Link key={item.to} to={item.to} onClick={() => setOpen(false)} className="block px-3 py-2 text-sm font-medium rounded-md hover:bg-accent">{item.label}</Link>
+                  ))}
+                  <button onClick={handleLogout} className="block w-full text-left px-3 py-2 text-sm font-medium rounded-md hover:bg-accent text-destructive">{t("nav.logout")}</button>
+                </>
+              ) : (
+                <>
+                  <Link to="/login" onClick={() => setOpen(false)} className="block px-3 py-2 text-sm font-medium rounded-md hover:bg-accent">{t("nav.login")}</Link>
+                  <Link to="/register" onClick={() => setOpen(false)} className="block px-3 py-2 text-sm font-medium rounded-md hover:bg-accent">{t("nav.register")}</Link>
+                </>
+              )}
+            </div>
           </div>
         )}
       </header>
 
-      <main className="flex-1"><Outlet /></main>
+      <main key={location.pathname} className="flex-1 page-enter"><Outlet /></main>
 
       <footer className="border-t border-border bg-card">
-        <div className="max-w-6xl mx-auto px-4 py-10 grid gap-8 md:grid-cols-3">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-14 grid gap-10 md:grid-cols-[1.25fr_1fr_1fr]">
           <div className="space-y-2">
-            <Logo size="sm" to={isAuthenticated ? dashboardPath : "/"} />
+            <Logo size="sm" to="/" />
             <p className="text-sm text-muted-foreground max-w-xs">{t("home.disclaimer")}</p>
           </div>
-          <div id="contact" className="space-y-2">
-            <h3 className="font-heading font-semibold text-sm uppercase tracking-wide text-foreground">{t("home.contactTitle")}</h3>
-            <p className="text-sm text-muted-foreground flex items-start gap-2"><MapPin className="w-4 h-4 mt-0.5 shrink-0" />{t("home.address")}</p>
-            <a href="tel:+918149921445" className="text-sm text-muted-foreground flex items-center gap-2 hover:text-foreground"><Phone className="w-4 h-4 shrink-0" />{t("home.phone")}</a>
+          <div id="contact" className="space-y-3">
+            <h3 className="font-heading font-semibold text-xs uppercase tracking-[0.16em] text-foreground">{t("home.contactTitle")}</h3>
+            <p className="text-sm text-muted-foreground flex items-start gap-2.5"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-secondary"><MapPin className="w-3.5 h-3.5" /></span><span className="pt-1">{t("home.address")}</span></p>
+            <a href="tel:+918149921445" className="text-sm text-muted-foreground flex items-center gap-2.5 hover:text-foreground"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-secondary"><Phone className="w-3.5 h-3.5" /></span>{t("home.phone")}</a>
           </div>
           <div className="space-y-2">
-            <h3 className="font-heading font-semibold text-sm uppercase tracking-wide text-foreground">{t("common.appName")}</h3>
+            <h3 className="font-heading font-semibold text-xs uppercase tracking-[0.16em] text-foreground">{t("common.appName")}</h3>
             <p className="text-sm text-muted-foreground">{t("footer.builtWith")}</p>
             <div className="flex gap-4 text-sm">
               <span className="text-muted-foreground hover:text-foreground cursor-pointer">{t("home.privacy")}</span>
@@ -186,7 +199,7 @@ function Layout() {
             </div>
           </div>
         </div>
-        <div className="border-t border-border py-4 text-center text-xs text-muted-foreground">
+        <div className="border-t border-border bg-secondary/40 py-4 text-center text-xs text-muted-foreground">
           © {new Date().getFullYear()} {t("common.appName")}. {t("footer.rights")}
         </div>
       </footer>

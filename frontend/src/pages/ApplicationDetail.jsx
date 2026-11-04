@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useParams, useSearchParams, Link } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import { useLang } from "@/lib/i18n/LanguageContext";
 import StatusBadge, { getStatusTranslationKey } from "@/components/StatusBadge";
@@ -10,7 +10,6 @@ import {
   getApplication,
   reviewApplicationDocument,
   shareIssuedApplicationDocument,
-  markNotificationRead,
   submitApplication,
   updateApplicationOwnerFields,
   updateApplicationStatus,
@@ -42,9 +41,6 @@ const NEXT_STATUSES = {
 
 export default function ApplicationDetail() {
   const { id } = useParams();
-  const [searchParams] = useSearchParams();
-  const notificationId = searchParams.get("notificationId");
-  const releasedDocumentId = searchParams.get("documentId");
   const { user } = useAuth();
   const { t, loc } = useLang();
   const [app, setApp] = useState(null);
@@ -57,12 +53,10 @@ export default function ApplicationDetail() {
   const [notice, setNotice] = useState("");
   const [priority, setPriority] = useState("normal");
   const [dueDate, setDueDate] = useState("");
-  const [internalNotes, setInternalNotes] = useState("");
   const [ownerStatus, setOwnerStatus] = useState("");
   const canManage = user?.role === "owner" || user?.role === "admin";
   const dashboardPath = user?.role === "customer" ? "/dashboard" : "/workspace";
   const loadGeneration = useRef(0);
-  const readNotificationIds = useRef(new Set());
 
   const loadApplication = useCallback(async () => {
     const generation = ++loadGeneration.current;
@@ -74,23 +68,9 @@ export default function ApplicationDetail() {
       setApp(result.application);
       setPriority(result.application.priority || "normal");
       setDueDate(result.application.internal_due_date ? new Date(result.application.internal_due_date).toISOString().slice(0, 10) : "");
-      setInternalNotes(result.application.internal_notes || "");
       setHistory(result.history);
       setDocs(result.documents);
       setComments(result.comments);
-      if (notificationId && !readNotificationIds.current.has(notificationId)) {
-        const notificationDocumentIsPresent = !releasedDocumentId || result.documents.some((document) =>
-          document.id === releasedDocumentId && (document.document_kind !== "issued" || document.shared_at)
-        );
-        if (notificationDocumentIsPresent) {
-          try {
-            await markNotificationRead(notificationId, id);
-            readNotificationIds.current.add(notificationId);
-          } catch (notificationError) {
-            setError(notificationError.message || "Unable to mark the document notification as read.");
-          }
-        }
-      }
     } catch (e) {
       if (generation !== loadGeneration.current) return;
       setError(e.message || "Unable to load this application");
@@ -98,7 +78,7 @@ export default function ApplicationDetail() {
     } finally {
       if (generation === loadGeneration.current) setLoading(false);
     }
-  }, [id, notificationId, releasedDocumentId]);
+  }, [id]);
 
   useEffect(() => {
     loadApplication();
@@ -225,7 +205,6 @@ export default function ApplicationDetail() {
       await updateApplicationOwnerFields(id, {
         priority,
         internal_due_date: dueDate ? new Date(`${dueDate}T23:59:00`).toISOString() : null,
-        internal_notes: internalNotes,
       });
       await loadApplication();
     } catch (e) {
@@ -300,14 +279,6 @@ export default function ApplicationDetail() {
         <StatusBadge status={app.status} />
       </div>
 
-      <section className="mb-6 rounded-xl border border-border bg-card p-5">
-        <h2 className="font-heading font-semibold text-foreground mb-3">Service and document category</h2>
-        <dl className="grid gap-3 sm:grid-cols-2">
-          <div><dt className="text-xs text-muted-foreground">Service</dt><dd className="mt-1 text-sm">{loc(app, "service_name") || loc(app.service || {}, "name") || "—"}</dd></div>
-          <div><dt className="text-xs text-muted-foreground">Document category</dt><dd className="mt-1 text-sm">{app.service?.category || "Uncategorized"}</dd></div>
-        </dl>
-      </section>
-
       {user?.role !== "customer" && app.customer && (
         <section className="mb-6 rounded-xl border border-border bg-card p-5">
           <h2 className="font-heading font-semibold text-foreground mb-3">Customer and submission details</h2>
@@ -340,9 +311,6 @@ export default function ApplicationDetail() {
             </label>
             <div className="flex items-end"><Button type="button" variant="outline" disabled={busy} onClick={handleOwnerFieldsSave}>Save priority and date</Button></div>
           </div>
-          <label className="mt-4 block text-sm">Internal owner remarks
-            <textarea maxLength={5000} rows={3} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2" value={internalNotes} onChange={(event) => setInternalNotes(event.target.value)} />
-          </label>
           {(NEXT_STATUSES[app.status] || []).length > 0 && (
             <div className="mt-4 flex flex-wrap items-end gap-2">
               <label className="text-sm">Update customer-visible status

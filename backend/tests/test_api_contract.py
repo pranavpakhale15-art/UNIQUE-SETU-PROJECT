@@ -10,6 +10,7 @@ from app.services.rate_limit_service import consume_login_attempt
 from app.services.storage_service import StorageService
 from app.utils.identifiers import normalize_indian_mobile
 from app.api.v1 import health
+from app.api.v1 import applications
 from fastapi import HTTPException
 from app.core.config import settings
 from app.core.permissions import has_permission
@@ -20,6 +21,7 @@ from app.api.v1.auth import issue_tokens
 from app.api.v1.tasks import is_overdue
 from bson import ObjectId
 from starlette.requests import Request
+from app.schemas.application import CommentCreate
 
 
 def test_mobile_normalizer_is_shared_and_strips_formatting():
@@ -176,6 +178,83 @@ def test_customer_application_model_excludes_internal_fields():
     assert "internal_notes" not in response.model_dump()
     assert "internal_due_date" not in response.model_dump()
     assert response.application_data == {"phone": "8149921445"}
+
+
+def test_owner_customer_comment_notifies_recipient_with_message_and_dedupe_key(monkeypatch):
+    application_id = ObjectId()
+    customer_id = ObjectId()
+    comment_id = ObjectId()
+    notifications = []
+
+    class Applications:
+        def find_one(self, query):
+            return {"_id": application_id, "customer_id": customer_id}
+
+    class Comments:
+        def insert_one(self, comment):
+            assert comment["message"] == "Your application is ready."
+            return type("InsertResult", (), {"inserted_id": comment_id})()
+
+    class Database:
+        applications = Applications()
+        application_comments = Comments()
+
+    monkeypatch.setattr(applications, "can_access", lambda *_: True)
+    monkeypatch.setattr(applications, "notify", lambda *args, **kwargs: notifications.append((args, kwargs)))
+
+    result = applications.add_comment(
+        str(application_id),
+        CommentCreate(message="Your application is ready."),
+        {"_id": str(ObjectId()), "role": "owner"},
+        Database(),
+    )
+
+    assert result == {"message": "Comment added"}
+    assert len(notifications) == 1
+    args, kwargs = notifications[0]
+    assert args[1:5] == (
+        str(customer_id),
+        "application.comment",
+        "New application comment",
+        "Your application is ready.",
+    )
+    assert args[5] == str(application_id)
+    assert kwargs["dedupe_key"] == f"application:{application_id}:comment:{comment_id}"
+
+
+def test_internal_and_customer_comments_do_not_notify_customer(monkeypatch):
+    application_id = ObjectId()
+    notifications = []
+
+    class Applications:
+        def find_one(self, query):
+            return {"_id": application_id, "customer_id": ObjectId()}
+
+    class Comments:
+        def insert_one(self, comment):
+            return type("InsertResult", (), {"inserted_id": ObjectId()})()
+
+    class Database:
+        applications = Applications()
+        application_comments = Comments()
+
+    monkeypatch.setattr(applications, "can_access", lambda *_: True)
+    monkeypatch.setattr(applications, "notify", lambda *args, **kwargs: notifications.append(args))
+
+    applications.add_comment(
+        str(application_id),
+        CommentCreate(message="Internal review note.", visibility="internal"),
+        {"_id": str(ObjectId()), "role": "owner"},
+        Database(),
+    )
+    applications.add_comment(
+        str(application_id),
+        CommentCreate(message="Thanks for the update."),
+        {"_id": str(ObjectId()), "role": "customer"},
+        Database(),
+    )
+
+    assert notifications == []
 
 
 def test_permission_overrides_can_restrict_role_defaults():

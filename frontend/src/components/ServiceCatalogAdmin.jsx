@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   archiveService,
@@ -6,12 +7,13 @@ import {
   createServiceCategory,
   deleteService,
   deleteServiceCategory,
-  listServiceCategories,
   publishService,
   updateService,
   updateServiceCategory,
   uploadServiceThumbnail,
 } from "@/api/backendClient";
+import { serviceQueryKeys, useServiceCategories } from "@/lib/serviceQueries";
+import ServiceThumbnail from "@/components/ServiceThumbnail";
 import { Eye, ImagePlus, Layers3, Pencil, Plus, Search, Trash2 } from "lucide-react";
 
 const inputClass = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm";
@@ -86,7 +88,9 @@ function formFromService(service) {
 }
 
 export default function ServiceCatalogAdmin({ services, loc, runAction, busy }) {
-  const [categories, setCategories] = useState([]);
+  const queryClient = useQueryClient();
+  const categoriesQuery = useServiceCategories(true);
+  const categories = categoriesQuery.data || [];
   const [form, setForm] = useState(blankForm);
   const [editingId, setEditingId] = useState(null);
   const [thumbnail, setThumbnail] = useState(null);
@@ -99,15 +103,10 @@ export default function ServiceCatalogAdmin({ services, loc, runAction, busy }) 
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState("");
 
-  const loadCategories = async () => {
-    try {
-      setCategories(await listServiceCategories(true));
-    } catch (loadError) {
-      setError(loadError.message || "Unable to load service sections.");
-    }
-  };
-
-  useEffect(() => { loadCategories(); }, []);
+  const loadCategories = () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: serviceQueryKeys.categories(true) }),
+    queryClient.invalidateQueries({ queryKey: serviceQueryKeys.categories(false) }),
+  ]);
 
   const visibleServices = useMemo(() => services.filter((service) => {
     const text = `${service.service_code || ""} ${loc(service, "name")} ${service.category || ""}`.toLowerCase();
@@ -119,12 +118,23 @@ export default function ServiceCatalogAdmin({ services, loc, runAction, busy }) 
 
   const resetForm = () => { setForm(blankForm); setEditingId(null); setThumbnail(null); setPublishAfterSave(false); };
 
+  const runCatalogAction = async (action, successMessage) => {
+    const success = await runAction(action, successMessage);
+    if (success) await queryClient.invalidateQueries({ queryKey: ["services"] });
+    return success;
+  };
+
   const submitService = async (event) => {
     event.preventDefault();
     setError("");
     const requirements = parseRequirements(form.requirements, form.service_code);
     if (!requirements.length) {
       setError("Add at least one document requirement before saving a service.");
+      return;
+    }
+    const selectedCategory = categories.find((item) => item.id === form.section_id);
+    if (!selectedCategory && !form.category.trim()) {
+      setError("Select a service section or enter a legacy category.");
       return;
     }
     let pricing = form.pricing.trim() || null;
@@ -135,7 +145,7 @@ export default function ServiceCatalogAdmin({ services, loc, runAction, busy }) 
       service_code: form.service_code.trim().toUpperCase(),
       name: { mr: form.name_mr.trim(), en: form.name_en.trim(), hi: form.name_hi.trim() },
       description: { mr: form.description_mr.trim(), en: form.description_en.trim(), hi: form.description_hi.trim() },
-      category: form.category.trim() || categories.find((item) => item.id === form.section_id)?.name?.en || "Services",
+      category: selectedCategory ? localized(selectedCategory.name, "en") || selectedCategory.slug : form.category.trim(),
       section_id: form.section_id || null,
       customer_instructions: form.customer_instructions.trim(),
       estimated_processing_time: form.estimated_processing_time.trim() || null,
@@ -146,7 +156,7 @@ export default function ServiceCatalogAdmin({ services, loc, runAction, busy }) 
       document_requirements: requirements,
       form_requirements: parseFormRequirements(form.form_requirements, form.service_code),
     };
-    const success = await runAction(async () => {
+    const success = await runCatalogAction(async () => {
       let id = editingId;
       if (id) {
         await updateService(id, data);
@@ -213,10 +223,13 @@ export default function ServiceCatalogAdmin({ services, loc, runAction, busy }) 
     drafts: services.filter((service) => !service.is_published && service.checklist_review_required).length,
     featured: services.filter((service) => service.is_featured).length,
   };
+  const legacyCategories = [...new Set(services.filter((service) => !service.section_id).map((service) => service.category || "Other services"))]
+    .map((name) => ({ name, count: services.filter((service) => !service.section_id && (service.category || "Other services") === name).length }));
 
   return (
     <div className="space-y-8">
       {error && <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
+      {categoriesQuery.error && <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{categoriesQuery.error.message || "Unable to load service sections."}</p>}
         <section id="reports" aria-label="Service catalog statistics" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
           {[["Total services", metrics.total], ["Active", metrics.active], ["Inactive", metrics.inactive], ["Drafts", metrics.drafts], ["Total categories", categories.length], ["Featured / popular", metrics.featured]].map(([label, value]) => (
           <div key={label} className="rounded-xl border border-border bg-card p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-heading text-2xl font-bold">{value}</p></div>
@@ -233,11 +246,20 @@ export default function ServiceCatalogAdmin({ services, loc, runAction, busy }) 
           <input aria-label="Section name in Hindi" placeholder="Name (Hindi)" className={inputClass} value={categoryForm.name_hi} onChange={(event) => setCategoryForm({ ...categoryForm, name_hi: event.target.value })} />
           <div className="flex gap-2"><input aria-label="Section display order" type="number" min="0" className={inputClass} value={categoryForm.display_order} onChange={(event) => setCategoryForm({ ...categoryForm, display_order: event.target.value })} /><Button type="submit" disabled={busy}><Plus className="mr-1 h-4 w-4" />{editingCategoryId ? "Save" : "Add"}</Button></div>
         </form>
+        {legacyCategories.length > 0 && (
+          <div className="mb-4 rounded-lg bg-muted/40 p-3">
+            <p className="text-xs font-semibold text-foreground">Existing legacy categories</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {legacyCategories.map(({ name, count }) => <span key={name} className="rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">{name} · {count} services</span>)}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">These existing groups remain available until their services are assigned to a managed section.</p>
+          </div>
+        )}
         <div className="space-y-2">
           {categories.length === 0 && <p className="text-sm text-muted-foreground">No sections yet. Create one above.</p>}
           {categories.map((category) => (
             <div key={category.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3">
-              <div><p className="font-medium">{localized(category.name, "en") || category.slug}</p><p className="text-xs text-muted-foreground">{category.slug} · order {category.display_order} · {category.is_visible ? "Visible" : "Hidden"}</p></div>
+              <div><p className="font-medium">{localized(category.name, "en") || category.slug}</p><p className="text-xs text-muted-foreground">{category.slug} · {services.filter((service) => service.section_id === category.id).length} services · order {category.display_order} · {category.is_visible ? "Visible" : "Hidden"}</p></div>
               <div className="flex gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => editCategory(category)}>Rename / reorder</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => toggleCategory(category)}>{category.is_visible ? "Hide" : "Show"}</Button><Button size="sm" variant="destructive" disabled={busy} onClick={() => window.confirm("Delete this unused section? Existing service references are protected.") && runAction(() => deleteServiceCategory(category.id), "Section deleted.").then(loadCategories)}><Trash2 className="mr-1 h-4 w-4" />Delete</Button></div>
             </div>
           ))}
@@ -251,7 +273,7 @@ export default function ServiceCatalogAdmin({ services, loc, runAction, busy }) 
         </div>
         <form onSubmit={submitService} className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <label className="text-xs text-muted-foreground">Service code<input required pattern="[A-Za-z0-9_-]+" className={`${inputClass} mt-1`} value={form.service_code} onChange={(event) => setForm({ ...form, service_code: event.target.value })} /></label>
+            <label className="text-xs text-muted-foreground">Service code<input required pattern="[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*" className={`${inputClass} mt-1`} value={form.service_code} onChange={(event) => setForm({ ...form, service_code: event.target.value })} /></label>
             <label className="text-xs text-muted-foreground">Name (Marathi)<input required className={`${inputClass} mt-1`} value={form.name_mr} onChange={(event) => setForm({ ...form, name_mr: event.target.value })} /></label>
             <label className="text-xs text-muted-foreground">Name (English)<input required className={`${inputClass} mt-1`} value={form.name_en} onChange={(event) => setForm({ ...form, name_en: event.target.value })} /></label>
             <label className="text-xs text-muted-foreground">Name (Hindi)<input required className={`${inputClass} mt-1`} value={form.name_hi} onChange={(event) => setForm({ ...form, name_hi: event.target.value })} /></label>
@@ -291,9 +313,9 @@ export default function ServiceCatalogAdmin({ services, loc, runAction, busy }) 
           <div className="space-y-3">
             {visibleServices.map((service) => (
               <article key={service.id} className="flex flex-wrap items-center gap-4 rounded-lg border border-border p-3">
-                {service.thumbnail_url ? <img src={service.thumbnail_url} alt={loc(service, "name")} className="h-16 w-20 rounded-md object-cover" /> : <div className="flex h-16 w-20 items-center justify-center rounded-md bg-muted"><ImagePlus className="h-5 w-5 text-muted-foreground" /></div>}
+                <ServiceThumbnail service={service} className="h-16 w-20 shrink-0 rounded-md" />
                 <div className="min-w-0 flex-1"><p className="font-medium">{loc(service, "name")}</p><p className="text-xs text-muted-foreground">{service.service_code} · {categories.find((category) => category.id === service.section_id)?.name?.en || service.category} · order {service.display_order || 0} · {service.document_requirements?.length || service.checklist?.length || 0} requirements</p><p className="text-xs text-muted-foreground">{service.is_published ? "Published" : service.checklist_review_required ? "Draft · checklist review needed" : "Unpublished"}{service.is_featured ? " · Featured" : ""}</p></div>
-                <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => setPreview(service)}><Eye className="mr-1 h-4 w-4" />Preview</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => startEdit(service)}><Pencil className="mr-1 h-4 w-4" />Edit</Button>{service.is_published ? <Button size="sm" variant="outline" disabled={busy} onClick={() => runAction(() => archiveService(service.id), "Service archived.")}>Unpublish</Button> : <Button size="sm" disabled={busy || service.checklist_review_required} onClick={() => runAction(() => publishService(service.id), "Service published.")}>Publish</Button>}<Button size="sm" variant="destructive" disabled={busy} onClick={() => window.confirm("Delete this service permanently? Existing application records are protected; if it is in use, archive it instead.") && runAction(() => deleteService(service.id), "Service deleted.")}><Trash2 className="h-4 w-4" /></Button></div>
+                <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => setPreview(service)}><Eye className="mr-1 h-4 w-4" />Preview</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => startEdit(service)}><Pencil className="mr-1 h-4 w-4" />Edit</Button>{service.is_published ? <Button size="sm" variant="outline" disabled={busy} onClick={() => runCatalogAction(() => archiveService(service.id), "Service archived.")}>Unpublish</Button> : <Button size="sm" disabled={busy || service.checklist_review_required} onClick={() => runCatalogAction(() => publishService(service.id), "Service published.")}>Publish</Button>}<Button size="sm" variant="destructive" disabled={busy} onClick={() => window.confirm("Delete this service permanently? Existing application records are protected; if it is in use, archive it instead.") && runCatalogAction(() => deleteService(service.id), "Service deleted.")}><Trash2 className="h-4 w-4" /></Button></div>
               </article>
             ))}
           </div>

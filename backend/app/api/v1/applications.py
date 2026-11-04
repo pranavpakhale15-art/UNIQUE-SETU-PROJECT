@@ -569,9 +569,17 @@ def add_comment(application_id: str, payload: CommentCreate, user=Depends(curren
     if payload.visibility=="internal" and not has_permission(user,"applications:manage"):
         raise HTTPException(status_code=403,detail="Internal comments are owner-only")
     comment={"application_id":oid,"author_id":ObjectId(user["_id"]),"message":payload.message,"visibility":payload.visibility,"created_at":datetime.now(timezone.utc)}
-    db.application_comments.insert_one(comment)
-    if payload.visibility=="customer":
-        notify(db,str(app["customer_id"]),"application.comment","New application comment","A comment was added to your application",str(oid))
+    result = db.application_comments.insert_one(comment)
+    if payload.visibility=="customer" and user.get("role") in ("owner", "admin"):
+        notify(
+            db,
+            str(app["customer_id"]),
+            "application.comment",
+            "New application comment",
+            payload.message,
+            str(oid),
+            dedupe_key=f"application:{oid}:comment:{result.inserted_id}",
+        )
     return {"message":"Comment added"}
 
 @router.get("/{application_id}/comments")

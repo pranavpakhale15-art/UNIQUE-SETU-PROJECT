@@ -3,112 +3,189 @@ import { Link } from "react-router-dom";
 import { useLang } from "@/lib/i18n/LanguageContext";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
-import { FileText, Plus, ArrowRight } from "lucide-react";
-import { listApplications, listUnreadDocumentNotifications } from "@/api/backendClient";
-
-const TERMINAL_STATUSES = new Set(["Completed by Shop", "Rejected by Shop", "Cancelled"]);
-const PROGRESS_STATUSES = [
-  "Draft", "Submitted by Customer", "Received by Shop", "Documents Under Review",
-  "Documents Incomplete", "Correction Requested", "Ready for Processing", "In Progress",
-  "Submitted to Government Authority", "Awaiting Government Decision", "Approved by Authority",
-  "Rejected by Authority",
-];
-
-function progressFor(status) {
-  const index = Math.max(0, PROGRESS_STATUSES.indexOf(status));
-  return Math.round(((index + 1) / PROGRESS_STATUSES.length) * 100);
-}
+import { Plus, FileText, ChevronRight } from "lucide-react";
+import { listApplications, listCompletedWork, listNotifications, listServices } from "@/api/backendClient";
+import ServiceCard from "@/components/ServiceCard";
 
 export default function CustomerDashboard() {
-  const { t, loc } = useLang();
-  const [applications, setApplications] = useState([]);
-  const [unreadDocuments, setUnreadDocuments] = useState([]);
+  const { t, loc, lang } = useLang();
+  const [apps, setApps] = useState([]);
+  const [completedApps, setCompletedApps] = useState([]);
+  const [services, setServices] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notificationError, setNotificationError] = useState("");
 
   useEffect(() => {
-    let active = true;
-    Promise.all([listApplications(), listUnreadDocumentNotifications()]).then(([applicationPage, notifications]) => {
-      if (!active) return;
-      setApplications((applicationPage.items || []).filter((item) => !TERMINAL_STATUSES.has(item.status)));
-      setUnreadDocuments(notifications.items || []);
-    }).catch((loadError) => {
-      if (active) setError(loadError.message || "Unable to load your dashboard.");
-    }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, []);
+    (async () => {
+      try {
+        const [applicationsPage, completedPage, servicesPage] = await Promise.all([
+          listApplications(),
+          listCompletedWork(),
+          listServices(lang),
+        ]);
+        setApps(applicationsPage.items || []);
+        setCompletedApps(completedPage.items || []);
+        setServices(servicesPage.items || []);
+        try {
+          const notificationPage = await listNotifications();
+          setNotifications(notificationPage.items || []);
+          setNotificationError("");
+        } catch (notificationLoadError) {
+          setNotificationError(notificationLoadError.message || "Unable to load document notifications");
+        }
+      } catch (e) {
+        setError(e.message || "Unable to load your customer dashboard");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [lang]);
 
-  useEffect(() => {
-    const handleRead = (event) => {
-      const readId = event.detail?.notificationId;
-      if (readId) setUnreadDocuments((current) => current.filter((item) => (item.id || item._id) !== readId));
-    };
-    const handleReadAll = () => setUnreadDocuments([]);
-    const refreshOnFocus = () => {
-      if (document.visibilityState !== "visible") return;
-      listUnreadDocumentNotifications().then((result) => setUnreadDocuments(result.items || [])).catch(() => {});
-    };
-    window.addEventListener("setu:notification-read", handleRead);
-    window.addEventListener("setu:notifications-read-all", handleReadAll);
-    document.addEventListener("visibilitychange", refreshOnFocus);
-    return () => {
-      window.removeEventListener("setu:notification-read", handleRead);
-      window.removeEventListener("setu:notifications-read-all", handleReadAll);
-      document.removeEventListener("visibilitychange", refreshOnFocus);
-    };
-  }, []);
+  const unreadNotifications = notifications.filter((notification) => !notification.is_read);
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-10">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div><p className="text-xs font-semibold uppercase tracking-wide text-primary">Customer dashboard</p><h1 className="mt-1 font-heading text-2xl font-bold md:text-3xl">Ongoing Applications</h1><p className="mt-1 text-sm text-muted-foreground">Track applications that are in progress or need your attention.</p></div>
-        <Button asChild><Link to="/services"><Plus className="mr-2 h-4 w-4" />New Application</Link></Button>
+    <div className="max-w-5xl mx-auto px-4 py-10">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+        <div>
+          <h1 className="font-heading font-bold text-2xl md:text-3xl text-foreground">{t("dashboard.title")}</h1>
+          <p className="text-muted-foreground text-sm mt-1">{t("dashboard.subtitle")}</p>
+        </div>
+        <Button asChild>
+          <Link to="/applications/new"><Plus className="w-4 h-4 mr-1.5" />{t("dashboard.newApplication")}</Link>
+        </Button>
       </div>
-      {error && <p role="alert" className="mb-5 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
-      {unreadDocuments.length > 0 && (
-        <section aria-labelledby="unread-documents-heading" className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-          <h2 id="unread-documents-heading" className="font-heading font-semibold text-foreground">New documents from the owner</h2>
-          <ul className="mt-2 space-y-2">
-            {unreadDocuments.map((notification) => (
-              <li key={notification.id || notification._id} className="flex flex-wrap items-center justify-between gap-3 text-sm">
-                <p>{notification.message || notification.title}</p>
-                <Button asChild size="sm" variant="outline"><Link to={`/applications/${notification.related_application_id}?notificationId=${encodeURIComponent(notification.id || notification._id)}${notification.related_document_id ? `&documentId=${encodeURIComponent(notification.related_document_id)}` : ""}`}>{notification.related_document_id ? "View document" : "Read message"} <ArrowRight className="ml-1 h-4 w-4" /></Link></Button>
-              </li>
-            ))}
-          </ul>
-        </section>
+
+      {loading ? (
+        <div className="text-center py-16 text-muted-foreground">{t("common.loading")}</div>
+      ) : error ? (
+        <div role="alert" className="text-center py-16 text-destructive">{error}</div>
+      ) : (
+        <>
+          {notificationError && <p role="alert" className="mb-4 text-sm text-destructive">{notificationError}</p>}
+          {unreadNotifications.length > 0 && (
+            <section aria-labelledby="unread-notifications-heading" className="mb-8 rounded-xl border border-primary/25 bg-primary/[0.04] p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h2 id="unread-notifications-heading" className="font-heading font-semibold text-foreground">New notifications</h2>
+                <Link to="/notifications" className="text-sm font-medium text-primary hover:underline">Notification history</Link>
+              </div>
+              <ul className="space-y-3">
+                {unreadNotifications.map((notification) => {
+                  const id = notification.id || notification._id;
+                  return (
+                    <li key={id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-card p-3 text-sm">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-foreground">{notification.title || "New notification"}</p>
+                        <p className="mt-1 text-muted-foreground line-clamp-2">{notification.message || notification.title}</p>
+                        {notification.created_at && <p className="mt-1 text-xs text-muted-foreground">{new Date(notification.created_at).toLocaleString()}</p>}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button asChild size="sm" variant="outline">
+                          <Link to={`/notifications?notificationId=${encodeURIComponent(id)}`}>Read message</Link>
+                        </Button>
+                        {notification.event_type === "document.issued_available" && notification.related_document_id && (
+                          <Button asChild size="sm">
+                            <Link to={`/documents?notificationId=${encodeURIComponent(id)}&documentId=${encodeURIComponent(notification.related_document_id)}`}>View document</Link>
+                          </Button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
+          <section aria-labelledby="applications-heading" className="mb-12">
+            <h2 id="applications-heading" className="font-heading font-semibold text-xl mb-4">{t("dashboard.title")}</h2>
+            {apps.length === 0 ? (
+              <div className="text-center py-10 rounded-xl border border-dashed border-border">
+                <FileText className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                <p className="text-muted-foreground">{t("dashboard.noApplications")}</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {apps.map((a) => (
+                  <Link
+                    key={a.id}
+                    to={`/applications/${a.id}`}
+                    className="block rounded-xl border border-border bg-card p-4 hover:border-primary/40 hover:shadow-sm transition-all"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                          <FileText className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground truncate">{loc(a, "service_name")}</p>
+                          <p className="text-xs text-muted-foreground">{a.application_id || a.id.slice(-8)}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <StatusBadge status={a.status} />
+                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+          <section aria-labelledby="completed-applications-heading" className="mb-12">
+            <h2 id="completed-applications-heading" className="font-heading font-semibold text-xl mb-4">Completed Tasks</h2>
+            {completedApps.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border p-6 text-sm text-muted-foreground">
+                No applications have a final document shared with you yet.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {completedApps.map((application) => (
+                  <Link
+                    key={application.id}
+                    to={`/applications/${application.id}`}
+                    className="block rounded-xl border border-border bg-card p-4 transition-all hover:border-primary/40 hover:shadow-sm"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium text-foreground">{loc(application, "service_name") || application.application_number}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {application.application_number} · Final document shared {application.issued_document?.shared_at
+                            ? new Date(application.issued_document.shared_at).toLocaleDateString()
+                            : ""}
+                        </p>
+                        {application.issued_document?.file_name && (
+                          <p className="mt-1 text-xs text-muted-foreground">Document: {application.issued_document.file_name}</p>
+                        )}
+                      </div>
+                      <StatusBadge status={application.status} />
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+          <section aria-labelledby="services-heading">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <h2 id="services-heading" className="font-heading font-semibold text-xl">{t("home.servicesTitle")}</h2>
+                <p className="text-sm text-muted-foreground mt-1">{services.length} {t("home.servicesCount")}</p>
+              </div>
+              <Button asChild variant="outline">
+                <Link to="/applications/new"><Plus className="w-4 h-4 mr-1.5" />{t("dashboard.newApplication")}</Link>
+              </Button>
+            </div>
+            {services.length === 0 ? (
+              <div className="text-center py-10 rounded-xl border border-dashed border-border text-muted-foreground">
+                {t("home.servicesUnavailable")}
+              </div>
+            ) : (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {services.map((service) => <ServiceCard key={service.id} service={service} />)}
+              </div>
+            )}
+          </section>
+        </>
       )}
-      {loading ? <p className="py-16 text-center text-muted-foreground">{t("common.loading")}</p> : applications.length === 0 ? (
-        <section className="rounded-xl border border-dashed border-border p-12 text-center">
-          <FileText className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
-          <p className="text-muted-foreground">No ongoing applications need your attention.</p>
-          <Button asChild className="mt-4"><Link to="/services">Browse services</Link></Button>
-        </section>
-      ) : <section aria-label="Ongoing applications" className="space-y-3">
-        {applications.map((application) => {
-          const id = application.id || application._id;
-          const progress = progressFor(application.status);
-          return (
-            <article key={id} className="rounded-xl border border-border bg-card p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="flex min-w-0 items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><FileText className="h-5 w-5" /></div>
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{loc(application, "service_name") || application.service?.name?.en || application.service_name_en || "Service application"}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Application ID: {application.application_number || application.application_id || id}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Submitted: {application.submitted_at ? new Date(application.submitted_at).toLocaleDateString() : "Draft — not submitted"}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3"><StatusBadge status={application.status} /><Button asChild size="sm" variant="outline"><Link to={`/applications/${id}`}>View Details</Link></Button></div>
-              </div>
-              <div className="mt-4" aria-label={`Application progress ${progress}%`}>
-                <div className="mb-1 flex justify-between text-xs text-muted-foreground"><span>Progress</span><span>{progress}%</span></div>
-                <div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progress}%` }} /></div>
-              </div>
-            </article>
-          );
-        })}
-      </section>}
-    </main>
+    </div>
   );
 }

@@ -5,6 +5,7 @@ import { useLang } from "@/lib/i18n/LanguageContext";
 import { getService } from "@/api/backendClient";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, CheckCircle2, Circle, FileText, Info } from "lucide-react";
+import ServiceThumbnail from "@/components/ServiceThumbnail";
 
 export default function ServiceDetail() {
   const { slug } = useParams();
@@ -47,10 +48,12 @@ export default function ServiceDetail() {
         <ArrowLeft className="w-4 h-4" />{t("service.backToServices")}
       </Link>
 
+      <ServiceThumbnail service={service} className="mb-8 aspect-[16/7] w-full rounded-2xl" />
+
       <div className="flex items-start gap-4">
-        {service.thumbnail_url ? <img src={service.thumbnail_url} alt={loc(service, "thumbnail_alt_text") || name} className="h-24 w-32 rounded-xl object-cover sm:h-32 sm:w-48" /> : (
-          <div className="w-14 h-14 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0"><FileText className="w-7 h-7" /></div>
-        )}
+        <div className="w-14 h-14 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+          <FileText className="w-7 h-7" />
+        </div>
         <div>
           <span className="inline-block text-xs font-medium px-2 py-0.5 rounded-full bg-accent/10 mb-2" style={{ color: "hsl(var(--accent))" }}>
             {service.category}
@@ -60,14 +63,6 @@ export default function ServiceDetail() {
       </div>
 
       <p className="mt-5 text-muted-foreground leading-relaxed">{desc}</p>
-
-      {(service.customer_instructions || service.estimated_processing_time || service.pricing) && (
-        <dl className="mt-5 grid gap-3 rounded-xl border border-border bg-card p-4 sm:grid-cols-3">
-          {service.customer_instructions && <div><dt className="text-xs font-medium text-muted-foreground">Customer instructions</dt><dd className="mt-1 text-sm">{loc(service, "customer_instructions")}</dd></div>}
-          {service.estimated_processing_time && <div><dt className="text-xs font-medium text-muted-foreground">Estimated processing time</dt><dd className="mt-1 text-sm">{loc(service, "estimated_processing_time")}</dd></div>}
-          {service.pricing && <div><dt className="text-xs font-medium text-muted-foreground">Fee / pricing</dt><dd className="mt-1 text-sm">{typeof service.pricing === "object" ? JSON.stringify(service.pricing) : service.pricing}</dd></div>}
-        </dl>
-      )}
 
       <div className="mt-4 flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
         <Info className="w-4 h-4 mt-0.5 shrink-0" />
@@ -88,10 +83,7 @@ export default function ServiceDetail() {
                 <p className="text-foreground font-medium">{loc(item, "label")}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {item.required ? t("common.required") : t("common.optional")}
-                  {Array.isArray(item.accepted_formats) && item.accepted_formats.length ? ` · ${item.accepted_formats.join(", ").toUpperCase()}` : ""}
-                  {item.max_size_mb ? ` · Max ${item.max_size_mb} MB` : ""}
                 </p>
-                {loc(item, "description") && <p className="mt-1 text-xs text-muted-foreground">{loc(item, "description")}</p>}
               </div>
             </li>
           ))}

@@ -292,6 +292,10 @@ export async function listNotifications() {
   return apiFetch('/notifications?page=1&page_size=100');
 }
 
+export async function getUnreadNotificationCount() {
+  return apiFetch('/notifications/unread-count');
+}
+
 export async function listUnreadDocumentNotifications() {
   return apiFetch('/notifications/unread-documents');
 }

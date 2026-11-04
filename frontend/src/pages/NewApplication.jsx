@@ -14,28 +14,6 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function acceptedFormats(item) {
-  return (item.accepted_formats || []).map((value) => String(value).trim().toLowerCase().replace(/^\./, ""));
-}
-
-function acceptsFile(item, file) {
-  const allowed = acceptedFormats(item);
-  if (!allowed.length) return VALID_TYPES.includes(file.type);
-  const extension = file.name.split(".").pop()?.toLowerCase();
-  const aliases = { jpeg: "jpg", jpg: "jpeg" };
-  return allowed.includes(file.type.toLowerCase()) || allowed.includes(extension) || allowed.includes(aliases[extension]);
-}
-
-function maxSizeFor(item) {
-  return item.max_size_mb ? Math.min(MAX_SIZE, Number(item.max_size_mb) * 1024 * 1024) : MAX_SIZE;
-}
-
-function acceptAttribute(item) {
-  const allowed = acceptedFormats(item);
-  if (!allowed.length) return ".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png";
-  return allowed.map((format) => format.includes("/") ? format : `.${format}`).join(",");
-}
-
 export default function NewApplication() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -78,11 +56,11 @@ export default function NewApplication() {
   const handleFile = async (item, file) => {
     if (!file) return;
     setError("");
-    if (!acceptsFile(item, file)) {
+    if (!VALID_TYPES.includes(file.type)) {
       setUploads((prev) => ({ ...prev, [item.id]: { error: t("newApp.invalidType") } }));
       return;
     }
-    if (file.size > maxSizeFor(item)) {
+    if (file.size > MAX_SIZE) {
       setUploads((prev) => ({ ...prev, [item.id]: { error: t("newApp.fileTooLarge") } }));
       return;
     }
@@ -230,8 +208,7 @@ export default function NewApplication() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-foreground">{loc(item, "label")}</p>
                           <p className="text-xs text-muted-foreground">
-                            {item.required ? t("common.required") : t("common.optional")} · {item.max_size_mb ? `Max ${Math.min(Number(item.max_size_mb), MAX_SIZE / (1024 * 1024))} MB` : t("newApp.maxFileSize")}
-                            {item.accepted_formats?.length ? ` · ${item.accepted_formats.join(", ").toUpperCase()}` : ""}
+                            {item.required ? t("common.required") : t("common.optional")} · {t("newApp.maxFileSize")}
                           </p>
 
                           {u?.error && (
@@ -249,7 +226,7 @@ export default function NewApplication() {
                                   {t("newApp.replace")}
                                   <input
                                     type="file"
-                                    accept={acceptAttribute(item)}
+                                    accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
                                     className="hidden"
                                     onChange={(e) => handleFile(item, e.target.files?.[0])}
                                   />
@@ -268,7 +245,7 @@ export default function NewApplication() {
                               <UploadCloud className="w-3.5 h-3.5" />{t("newApp.chooseFile")}
                               <input
                                 type="file"
-                                accept={acceptAttribute(item)}
+                                accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
                                 className="hidden"
                                 onChange={(e) => handleFile(item, e.target.files?.[0])}
                               />

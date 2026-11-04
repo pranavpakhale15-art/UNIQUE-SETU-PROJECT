@@ -28,13 +28,13 @@ import Register from "@/pages/Register";
 import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
 import RoleWorkspace from "@/pages/RoleWorkspace";
+import CustomerApplicationsPage from "@/pages/CustomerApplicationsPage";
 import CustomerDocumentsPage from "@/pages/CustomerDocumentsPage";
+import HelpSupportPage from "@/pages/HelpSupportPage";
 import NotificationsPage from "@/pages/NotificationsPage";
 import ProfilePage from "@/pages/ProfilePage";
-import HelpSupportPage from "@/pages/HelpSupportPage";
-import ServicesPage from "@/pages/ServicesPage";
 import ServiceCategoryPage from "@/pages/ServiceCategoryPage";
-import CustomerApplicationsPage from "@/pages/CustomerApplicationsPage";
+import ServicesPage from "@/pages/ServicesPage";
 
 const AuthenticatedApp = () => {
   const {
@@ -75,6 +75,7 @@ const AuthenticatedApp = () => {
         <Route path="/services" element={<ServicesPage />} />
         <Route path="/services/category/:categoryKey" element={<ServiceCategoryPage />} />
         <Route path="/services/:slug" element={<ServiceDetail />} />
+
         <Route element={<ProtectedRoute />}>
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/profile" element={<ProfilePage />} />
@@ -128,7 +129,7 @@ function App() {
     <AuthProvider>
       <LanguageProvider>
         <QueryClientProvider client={queryClientInstance}>
-          <Router>
+          <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <ScrollToTop />
             <AuthenticatedApp />
           </Router>
