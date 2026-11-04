@@ -4,7 +4,12 @@ The React customer flows use this API contract through `src/api/backendClient.js
 
 ## Base URL and cookies
 
-Configure the React build with the backend origin, `/api` base, or full `/api/v1` base:
+In local development, the React client defaults to the local backend and can be
+configured with `VITE_API_BASE_URL`. Production frontend builds use the
+same-origin `/api/v1` path; on Vercel this is rewritten to the backend by
+`frontend/vercel.json`. Set Vercel's `VITE_API_BASE_URL` to `/api/v1` and
+redeploy rather than configuring the backend's absolute origin, so the readable
+CSRF cookie remains accessible to frontend JavaScript.
 
 ```env
 VITE_API_BASE_URL=http://127.0.0.1:8000/api/v1

@@ -12,5 +12,10 @@ npm install
 npm run dev
 ```
 
-The frontend defaults to `http://127.0.0.1:8000/api/v1`. Set
-`VITE_API_BASE_URL` in `.env.local` to use another backend URL.
+Local development defaults to `http://127.0.0.1:8000/api/v1`; set
+`VITE_API_BASE_URL` in `.env.local` to use another local backend URL. Production
+builds use the same-origin `/api/v1` route so Vercel's `/api/:path*` rewrite
+proxies requests and cookie-based authentication stays on the frontend origin.
+Set the Vercel `VITE_API_BASE_URL` project variable to `/api/v1` (not the
+backend's absolute URL) and redeploy; production builds use the proxy path even
+if an old absolute value is still present.
