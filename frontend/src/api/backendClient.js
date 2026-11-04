@@ -1,4 +1,4 @@
-import { resolveApiBaseUrl } from './apiBaseUrl';
+import { resolveApiBaseUrl, resolveApiResourceUrl } from './apiBaseUrl';
 
 const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL, import.meta.env.DEV);
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -141,7 +141,9 @@ export function normalizeService(service) {
   return {
     ...service,
     id: service.id || service._id,
-    thumbnail_url: service.thumbnail_url ? new URL(service.thumbnail_url, `${API_BASE_URL}/`).toString() : null,
+    thumbnail_url: service.thumbnail_url
+      ? resolveApiResourceUrl(service.thumbnail_url, API_BASE_URL)
+      : null,
     service_slug: service.service_slug || String(service.service_code || service._id || '').toLowerCase().replace(/_/g, '-'),
     checklist,
     form_requirements: formRequirements,

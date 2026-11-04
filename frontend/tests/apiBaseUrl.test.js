@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { resolveApiBaseUrl } from '../src/api/apiBaseUrl.js';
+import { resolveApiBaseUrl, resolveApiResourceUrl } from '../src/api/apiBaseUrl.js';
 
 test('production uses the same-origin API proxy even with a stale absolute setting', () => {
   assert.equal(
@@ -13,6 +13,17 @@ test('production uses the same-origin API proxy even with a stale absolute setti
 test('development keeps its local API default and supports an explicit override', () => {
   assert.equal(resolveApiBaseUrl(undefined, true), 'http://127.0.0.1:8000/api/v1');
   assert.equal(resolveApiBaseUrl('http://localhost:8000/api', true), 'http://localhost:8000/api/v1');
+});
+
+test('relative API resources resolve against the frontend origin', () => {
+  assert.equal(
+    resolveApiResourceUrl(
+      '/api/v1/services/example/thumbnail',
+      '/api/v1',
+      'https://unique-setu-project.vercel.app',
+    ),
+    'https://unique-setu-project.vercel.app/api/v1/services/example/thumbnail',
+  );
 });
 
 test('Vercel proxies the production API base to the backend API path', async () => {

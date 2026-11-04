@@ -12,3 +12,12 @@ export function resolveApiBaseUrl(configuredApiBaseUrl, isDevelopment) {
   if (!isDevelopment) return SAME_ORIGIN_API_BASE_URL;
   return normalizeApiBaseUrl(configuredApiBaseUrl || LOCAL_API_BASE_URL);
 }
+
+export function resolveApiResourceUrl(
+  resourceUrl,
+  apiBaseUrl,
+  origin = globalThis.location?.origin || 'http://localhost',
+) {
+  const baseUrl = new URL(`${apiBaseUrl.replace(/\/+$/, '')}/`, origin);
+  return new URL(resourceUrl, baseUrl).toString();
+}
