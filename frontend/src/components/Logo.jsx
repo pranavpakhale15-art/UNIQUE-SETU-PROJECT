@@ -11,7 +11,7 @@ export default function Logo({ size = "md", to = "/" }) {
       <img
         src={`${import.meta.env.BASE_URL}logo.png`}
         alt={t("common.appName")}
-        className={`${dim} rounded-xl object-cover shadow-md shadow-orange-900/10 ring-1 ring-amber-700/20 shrink-0 transition-transform duration-300 group-hover:scale-105`}
+        className={`${dim} rounded-full object-cover shadow-md shadow-orange-900/10 ring-1 ring-amber-700/20 shrink-0 transition-transform duration-300 group-hover:scale-105`}
       />
       <div className="flex flex-col leading-tight">
         <span className={`font-heading font-bold ${text} text-foreground tracking-tight`}>
