@@ -6,7 +6,7 @@
       "destination": "https://unique-setu-project.onrender.com/api/:path*"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!logo\\.png$).*)",
       "destination": "/index.html"
     }
   ]
